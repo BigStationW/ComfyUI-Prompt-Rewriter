@@ -14,7 +14,7 @@ This node can rewrite your prompts with the help of a chosen instruct (or thinki
 ```
 git clone https://github.com/BigStationW/ComfyUI-Prompt-Manager
 ```
-2) Navigate to the **ComfyUI\custom_nodes\ComfyUI-Prompt-Manager** folder, [open cmd](https://www.youtube.com/watch?v=bgSSJQolR0E&t=47s) and run:
+2) Navigate to the **ComfyUI\custom_nodes\ComfyUI-Prompt-Manager** folder, open cmd and run:
 
 ```
 ..\..\..\python_embeded\python.exe -s -m pip install -r "requirements.txt"
