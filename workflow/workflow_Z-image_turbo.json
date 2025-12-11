@@ -1,8 +1,8 @@
 {
   "id": "44259803-f9d6-4eb1-a94a-75b8213649d0",
   "revision": 0,
-  "last_node_id": 152,
-  "last_link_id": 297,
+  "last_node_id": 153,
+  "last_link_id": 298,
   "nodes": [
     {
       "id": 10,
@@ -532,7 +532,7 @@
           "name": "options",
           "shape": 7,
           "type": "OPTIONS",
-          "link": 297
+          "link": 298
         }
       ],
       "outputs": [
@@ -662,15 +662,15 @@
       "bgcolor": "#653"
     },
     {
-      "id": 152,
+      "id": 153,
       "type": "PromptGenOptions",
       "pos": [
-        -470.8093425485504,
-        1385.8550249765674
+        -573.660883993679,
+        1406.6713786654689
       ],
       "size": [
-        407.0502146436726,
-        575.2762890639713
+        413.9839804680845,
+        562.3425112369282
       ],
       "flags": {},
       "order": 9,
@@ -681,19 +681,20 @@
           "name": "options",
           "type": "OPTIONS",
           "links": [
-            297
+            298
           ]
         }
       ],
       "properties": {
         "aux_id": "BigStationW/ComfyUI-Prompt-Manager",
-        "ver": "2e4d3c697ca60222b292abb9a576348de7ac1d3b",
+        "ver": "ecc075be0f54f3a1da38586f901cb2e3096ac032",
         "Node name for S&R": "PromptGenOptions"
       },
       "widgets_values": [
         "Qwen3-4B-Q8_0.gguf",
         "",
         true,
+        8192,
         8192,
         "",
         true,
@@ -827,8 +828,8 @@
       "*"
     ],
     [
-      297,
-      152,
+      298,
+      153,
       0,
       144,
       0,
@@ -839,10 +840,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.39142513012221813,
+      "scale": 0.6303940863131337,
       "offset": [
-        744.7243421013125,
-        -618.2603173294732
+        1200.525365774651,
+        -971.6518409124808
       ]
     },
     "frontendVersion": "1.34.8",
