@@ -7,6 +7,7 @@ import psutil
 import json
 import signal
 import sys
+import re
 from .model_manager import get_local_models, get_model_path, is_model_local, download_model
 
 # Import ComfyUI's model management for interrupt handling
@@ -15,7 +16,9 @@ import comfy.model_management
 # Global variable to track the server process
 _server_process = None
 _current_model = None
+_current_gpu_config = None  # Track GPU configuration
 _model_default_params = None  # Cache for model default parameters
+_model_layer_cache = {}  # Cache for model layer counts
 
 # Windows Job Object for guaranteed child process cleanup
 _job_handle = None
@@ -143,7 +146,7 @@ def setup_console_handler():
 
 def cleanup_server():
     """Cleanup function to stop server on exit"""
-    global _server_process, _current_model, _model_default_params
+    global _server_process, _current_model, _current_gpu_config, _model_default_params
     
     if _server_process:
         try:
@@ -160,6 +163,7 @@ def cleanup_server():
         finally:
             _server_process = None
             _current_model = None
+            _current_gpu_config = None
             _model_default_params = None
     
     # Also kill any orphaned llama-server processes
@@ -193,6 +197,167 @@ except Exception as e:
 
 atexit.register(cleanup_server)
 
+
+def get_model_layer_count(model_path):
+    """Get the number of layers in a GGUF model by running llama-server briefly"""
+    global _model_layer_cache
+    
+    # Check cache first
+    if model_path in _model_layer_cache:
+        return _model_layer_cache[model_path]
+    
+    try:
+        if os.name == 'nt':
+            server_cmd = "llama-server.exe"
+        else:
+            server_cmd = "llama-server"
+        
+        # Run with minimal settings just to get model info
+        cmd = [server_cmd, "-m", model_path, "-ngl", "0", "-c", "512"]
+        
+        print(f"[Prompt Generator] Detecting layer count for model...")
+        
+        if os.name == 'nt':
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
+            )
+        
+        layer_count = None
+        start_time = time.time()
+        
+        # Read output line by line looking for layer info
+        while time.time() - start_time < 30:  # 30 second timeout
+            line = process.stdout.readline()
+            if not line:
+                if process.poll() is not None:
+                    break
+                continue
+            
+            decoded = line.decode('utf-8', errors='ignore')
+            
+            # Look for "n_layer = XX" pattern
+            match = re.search(r'n_layer\s*=\s*(\d+)', decoded)
+            if match:
+                layer_count = int(match.group(1))
+                print(f"[Prompt Generator] Detected {layer_count} layers")
+                break
+        
+        # Kill the process
+        try:
+            process.terminate()
+            process.wait(timeout=3)
+        except:
+            try:
+                process.kill()
+            except:
+                pass
+        
+        if layer_count:
+            _model_layer_cache[model_path] = layer_count
+            return layer_count
+        else:
+            print("[Prompt Generator] Warning: Could not detect layer count, using default 999")
+            return None
+            
+    except Exception as e:
+        print(f"[Prompt Generator] Error detecting layers: {e}")
+        return None
+
+
+def parse_gpu_config(gpu_config_str, total_layers):
+    """
+    Parse GPU configuration string and return layer distribution.
+    
+    Args:
+        gpu_config_str: String like "gpu0:0.7" or "gpu0:0.5,gpu1:0.4" or "auto"
+        total_layers: Total number of layers in the model
+    
+    Returns:
+        List of tuples: [(device_index, layer_count), ...] or None for auto
+    """
+    if not gpu_config_str or gpu_config_str.lower() in ('auto', 'all', ''):
+        return None  # Use default -ngl 999
+    
+    gpu_config_str = gpu_config_str.lower().strip()
+    
+    # Parse each GPU specification
+    gpu_specs = []
+    total_fraction = 0.0
+    
+    for part in gpu_config_str.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        
+        # Match patterns like "gpu0:0.7" or "vulkan0:0.5"
+        match = re.match(r'(?:gpu|vulkan)?(\d+)\s*:\s*([\d.]+)', part)
+        if match:
+            device_idx = int(match.group(1))
+            fraction = float(match.group(2))
+            
+            if fraction > 1.0:
+                # Assume it's a layer count, not a fraction
+                layer_count = int(fraction)
+            else:
+                layer_count = int(total_layers * fraction)
+            
+            gpu_specs.append((device_idx, layer_count))
+            total_fraction += fraction if fraction <= 1.0 else (fraction / total_layers)
+        else:
+            print(f"[Prompt Generator] Warning: Could not parse GPU spec '{part}'")
+    
+    if not gpu_specs:
+        return None
+    
+    # Calculate remaining layers for CPU
+    assigned_layers = sum(layers for _, layers in gpu_specs)
+    cpu_layers = max(0, total_layers - assigned_layers)
+    
+    print(f"[Prompt Generator] Layer distribution for {total_layers} layers:")
+    for device_idx, layers in gpu_specs:
+        print(f"  GPU{device_idx}: {layers} layers ({layers/total_layers*100:.1f}%)")
+    print(f"  CPU: {cpu_layers} layers ({cpu_layers/total_layers*100:.1f}%)")
+    
+    return gpu_specs
+
+
+def build_gpu_args(gpu_specs, total_layers):
+    """
+    Build command line arguments for GPU layer distribution.
+    """
+    if gpu_specs is None:
+        # Auto mode: offload all to GPU 0
+        return ["-ngl", "999", "--main-gpu", "0"]
+    
+    if len(gpu_specs) == 1:
+        # Single GPU with specific layer count
+        device_idx, layer_count = gpu_specs[0]
+        return ["-ngl", str(layer_count), "--main-gpu", str(device_idx)]
+    
+    else:
+        # Multi-GPU
+        max_device = max(device_idx for device_idx, _ in gpu_specs)
+        split_values = [0] * (max_device + 1)
+        
+        for device_idx, layer_count in gpu_specs:
+            split_values[device_idx] = layer_count
+        
+        total_gpu_layers = sum(layers for _, layers in gpu_specs)
+        ngl_value = "999" if total_gpu_layers >= total_layers else str(total_gpu_layers)
+        
+        ts_str = ",".join(str(v) for v in split_values)
+        
+        # No --split-mode needed, llama.cpp handles it automatically
+        return ["-ngl", ngl_value, "--tensor-split", ts_str]
 
 class PromptGenerator:
     """Node that generates enhanced prompts using a llama.cpp server"""
@@ -294,21 +459,22 @@ class PromptGenerator:
         return None
 
     @staticmethod
-    def start_server(model_name):
-        """Start llama.cpp server with specified model (thinking controlled per-request)"""
-        global _server_process, _current_model, _model_default_params
+    def start_server(model_name, gpu_config=None):
+        """Start llama.cpp server with specified model and GPU configuration"""
+        global _server_process, _current_model, _current_gpu_config, _model_default_params
 
         # Kill any existing llama-server processes first
         PromptGenerator.kill_all_llama_servers()
 
-        # If server is already running with the same model, don't restart
+        # If server is already running with the same model and GPU config, don't restart
         if (_server_process and 
             _current_model == model_name and 
+            _current_gpu_config == gpu_config and
             PromptGenerator.is_server_alive()):
             print(f"[Prompt Generator] Server already running with model: {model_name}")
             return (True, None)
 
-        # Stop existing server if running different model
+        # Stop existing server if running different model or GPU config
         if _server_process:
             PromptGenerator.stop_server()
 
@@ -345,14 +511,31 @@ class PromptGenerator:
             else:
                 server_cmd = "llama-server"
 
-            # Start server with reasoning format enabled (thinking is controlled per-request)
+            # Build base command
             cmd = [
                 server_cmd, 
                 "-m", model_path, 
                 "--port", str(PromptGenerator.SERVER_PORT),
                 "--no-warmup",
-                "--reasoning-format", "deepseek"  # Enable reasoning format, control via chat_template_kwargs
+                "--reasoning-format", "deepseek"
             ]
+            
+            # Handle GPU configuration
+            if gpu_config and gpu_config.lower() not in ('auto', 'all', ''):
+                # Get layer count for this model
+                total_layers = get_model_layer_count(model_path)
+                
+                if total_layers:
+                    gpu_specs = parse_gpu_config(gpu_config, total_layers)
+                    gpu_args = build_gpu_args(gpu_specs, total_layers)
+                else:
+                    # Fallback to auto if we couldn't detect layers
+                    gpu_args = ["-ngl", "999", "--split-mode", "none", "--main-gpu", "0"]
+            else:
+                # Auto mode - use only GPU 0
+                gpu_args = ["-ngl", "999", "--split-mode", "none", "--main-gpu", "0"]
+            
+            cmd.extend(gpu_args)
             
             print(f"[Prompt Generator] Command: {' '.join(cmd)}")
             print("[Prompt Generator] Thinking mode: controlled per-request via chat_template_kwargs")
@@ -373,6 +556,7 @@ class PromptGenerator:
 
             assign_process_to_job(_server_process)
             _current_model = model_name
+            _current_gpu_config = gpu_config
 
             print("[Prompt Generator] Waiting for server to be ready...")
             
@@ -398,6 +582,7 @@ class PromptGenerator:
                     
                     _server_process = None
                     _current_model = None
+                    _current_gpu_config = None
                     return (False, error_msg + (f"\n\nServer output:\n{output[:1000]}" if output else ""))
                 
                 if (i + 1) % 10 == 0:
@@ -437,7 +622,7 @@ class PromptGenerator:
     @staticmethod
     def stop_server():
         """Stop the llama.cpp server"""
-        global _server_process, _current_model, _model_default_params
+        global _server_process, _current_model, _current_gpu_config, _model_default_params
 
         if _server_process:
             try:
@@ -453,6 +638,7 @@ class PromptGenerator:
             finally:
                 _server_process = None
                 _current_model = None
+                _current_gpu_config = None
                 _model_default_params = None
 
         PromptGenerator.kill_all_llama_servers()
@@ -488,7 +674,7 @@ class PromptGenerator:
     def convert_prompt(self, prompt: str, seed: int, stop_server_after=False, 
                     show_everything_in_console=False, options=None) -> str:
         """Convert prompt using llama.cpp server, with caching for repeated requests."""
-        global _current_model
+        global _current_model, _current_gpu_config
 
         if not prompt.strip():
             return ("",)
@@ -497,6 +683,7 @@ class PromptGenerator:
         model_to_use = None
         enable_thinking = True  # Default to thinking ON
         use_model_default_sampling = False  # Default to custom parameters
+        gpu_config = None  # GPU layer distribution config
         
         if options:
             if "model" in options and is_model_local(options["model"]):
@@ -505,6 +692,8 @@ class PromptGenerator:
                 enable_thinking = options["enable_thinking"]
             if "use_model_default_sampling" in options:
                 use_model_default_sampling = options["use_model_default_sampling"]
+            if "gpu_config" in options:
+                gpu_config = options["gpu_config"]
         
         if not model_to_use:
             local_models = get_local_models()
@@ -523,14 +712,18 @@ class PromptGenerator:
         options_tuple = tuple(sorted(options.items())) if options else ()
         cache_key = (prompt, seed, model_to_use, options_tuple)
 
-        # Only restart server if model changed (not for thinking toggle!)
-        if _current_model != model_to_use or not self.is_server_alive():
+        # Only restart server if model or GPU config changed
+        if (_current_model != model_to_use or 
+            _current_gpu_config != gpu_config or 
+            not self.is_server_alive()):
             if _current_model and _current_model != model_to_use:
                 print(f"[Prompt Generator] Model changed: {_current_model} → {model_to_use}")
+            elif _current_gpu_config != gpu_config:
+                print(f"[Prompt Generator] GPU config changed: {_current_gpu_config} → {gpu_config}")
             else:
                 print(f"[Prompt Generator] Starting server with model: {model_to_use}")
             self.stop_server()
-            success, error_msg = self.start_server(model_to_use)
+            success, error_msg = self.start_server(model_to_use, gpu_config)
             if not success:
                 return (error_msg,)
         else:
