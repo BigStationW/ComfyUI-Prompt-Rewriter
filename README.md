@@ -75,7 +75,7 @@ For visual models, you can add up to 5 images to the Prompt Generator Options no
 2. Download its mmproj file and put it to the **ComfyUI\models\gguf** folder.
 - https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF/blob/main/mmproj-BF16.gguf
 
-3. You have to rename "mmproj-BF16.gguf" to "Qwen3-VL-4B-Thinking-mmproj-F16.gguf"
+3. You have to rename "mmproj-BF16.gguf" to "Qwen3-VL-4B-Thinking-mmproj-BF16.gguf"
 
 At the end it'll look like this:
 
