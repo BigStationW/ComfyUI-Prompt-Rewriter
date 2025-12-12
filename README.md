@@ -44,9 +44,6 @@ Or something like this (thinking model):
 You can even go for uncensored LLMs, like that one for example:
 - https://huggingface.co/mradermacher/Josiefied-Qwen3-8B-abliterated-v1-GGUF
 
-It also works with vision models (only text):
-- https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF
-
 ## Usage
 It should look like this.
 
@@ -66,6 +63,23 @@ For example:
 - gpu0:0.5, gpu1:0.4 -> 50% GPU:0, 40% GPU:1, 10% CPU
 
 <img width="700" alt="image" src="https://github.com/user-attachments/assets/d5869277-8c3e-439f-a08a-5a0401835d6f" />
+
+
+## Image inputs
+For visual models, you can add up to 5 images to the Prompt Generator Options node.
+
+1. Download a visual model and put it to the **ComfyUI\models\gguf** folder, like that one for example:
+
+- https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF
+
+2. Download its mmproj file and put it to the **ComfyUI\models\gguf** folder.
+- https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF/blob/main/mmproj-BF16.gguf
+
+3. You have to rename "mmproj-BF16.gguf" to "Qwen3-VL-4B-Thinking-mmproj-F16.gguf"
+
+At the end it'll look like this:
+
+<img width="700" alt="image" src="https://github.com/user-attachments/assets/4cdb8201-afac-4360-b1c0-b9de26e87c87" />
 
 
 
