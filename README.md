@@ -50,7 +50,7 @@ It also works with vision models (only text):
 ## Usage
 It should look like this.
 
-<img width="700" alt="image" src="https://github.com/user-attachments/assets/b84e0631-adf5-41ff-a0e5-102e74f1853e" />
+<img width="700" alt="image" src="https://github.com/user-attachments/assets/8095c9d6-15ce-4680-9dc3-7fe107973f9e" />
 
 An example workflow (for Z-image turbo) can be found [here](https://github.com/BigStationW/ComfyUI-Prompt-Manager/blob/main/workflow/workflow_Z-image_turbo.json).
 
