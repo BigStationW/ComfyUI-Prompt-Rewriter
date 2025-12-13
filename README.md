@@ -55,7 +55,7 @@ PS: **The Display Any (rgthree)** node can be found [here](https://github.com/rg
 
 ## MultiGPU and offloading
 
-This node allows you to split the model into your GPUs and the CPU with the **gpu_layer**s placeholder.
+This node allows you to split the model into your GPUs and the CPU with the **gpu_layers** placeholder.
 
 For example:
 - Empty placeholder -> All layers go to the first GPU (default)
