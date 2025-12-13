@@ -19,7 +19,7 @@ git clone https://github.com/BigStationW/ComfyUI-Prompt-Manager
 ```
 ..\..\..\python_embeded\python.exe -s -m pip install -r "requirements.txt"
 ```
-3) If you have Windows, simply open cmd and run:
+3) If you have Windows, open cmd and run:
 ```
 winget install llama.cpp
 ```
