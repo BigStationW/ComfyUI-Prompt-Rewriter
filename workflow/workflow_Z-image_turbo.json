@@ -1,8 +1,8 @@
 {
   "id": "44259803-f9d6-4eb1-a94a-75b8213649d0",
   "revision": 0,
-  "last_node_id": 153,
-  "last_link_id": 298,
+  "last_node_id": 155,
+  "last_link_id": 302,
   "nodes": [
     {
       "id": 10,
@@ -438,7 +438,7 @@
         275.4088744887117
       ],
       "flags": {},
-      "order": 13,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -452,7 +452,7 @@
           "widget": {
             "name": "text"
           },
-          "link": 292
+          "link": 301
         }
       ],
       "outputs": [
@@ -514,51 +514,6 @@
       ]
     },
     {
-      "id": 144,
-      "type": "PromptGenerator",
-      "pos": [
-        108.5124003926588,
-        1381.9371140274704
-      ],
-      "size": [
-        408.74002280001605,
-        357.3199302979631
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "options",
-          "shape": 7,
-          "type": "OPTIONS",
-          "link": 298
-        }
-      ],
-      "outputs": [
-        {
-          "name": "output",
-          "type": "STRING",
-          "links": [
-            292,
-            295
-          ]
-        }
-      ],
-      "properties": {
-        "aux_id": "FranckyB/ComfyUI-Prompt-Manager",
-        "ver": "e6f56f3a75fde1ddde1e357945952486bbddd1c4",
-        "Node name for S&R": "PromptGenerator"
-      },
-      "widgets_values": [
-        "A woman drinking coffee in a bar",
-        549706180014590,
-        "fixed",
-        true,
-        false
-      ]
-    },
-    {
       "id": 146,
       "type": "Display Any (rgthree)",
       "pos": [
@@ -570,14 +525,14 @@
         281.5151970699444
       ],
       "flags": {},
-      "order": 14,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
           "dir": 3,
           "name": "source",
           "type": "*",
-          "link": 295
+          "link": 300
         }
       ],
       "outputs": [],
@@ -639,56 +594,109 @@
       "bgcolor": "#653"
     },
     {
-      "id": 147,
-      "type": "Note",
+      "id": 155,
+      "type": "PromptGeneratorZ",
       "pos": [
-        -472.2982649775344,
-        1129.8516147199398
+        30.15485403224241,
+        1382.2243207830056
       ],
       "size": [
-        399.91092069296496,
-        174.983513308679
+        524.8997886271859,
+        352.1505325261119
       ],
       "flags": {},
-      "order": 8,
+      "order": 11,
       "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "If the System prompt is empty, it means it is using the default prompt.\n\nDon't hesitate to create your own System prompt by writing it into the \"Prompt Generator Options\" text box."
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
-      "id": 153,
-      "type": "PromptGenOptions",
-      "pos": [
-        -573.660883993679,
-        1406.6713786654689
-      ],
-      "size": [
-        413.9839804680845,
-        562.3425112369282
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
+      "inputs": [
         {
           "name": "options",
+          "shape": 7,
           "type": "OPTIONS",
+          "link": 302
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "STRING",
           "links": [
-            298
+            300,
+            301
           ]
         }
       ],
       "properties": {
         "aux_id": "BigStationW/ComfyUI-Prompt-Manager",
-        "ver": "ecc075be0f54f3a1da38586f901cb2e3096ac032",
-        "Node name for S&R": "PromptGenOptions"
+        "ver": "ebca063e3d2ae8268eddffd2cd26e6a5d6217993",
+        "Node name for S&R": "PromptGeneratorZ"
+      },
+      "widgets_values": [
+        "A woman drinking coffee in a bar.",
+        1019223859961006,
+        "randomize",
+        true,
+        false
+      ]
+    },
+    {
+      "id": 154,
+      "type": "PromptGenOptionsZ",
+      "pos": [
+        -716.6226583834443,
+        1261.2781588661069
+      ],
+      "size": [
+        539.5306616949038,
+        797.4977040679851
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image_4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "image_5",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "options",
+          "type": "OPTIONS",
+          "links": [
+            302
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "BigStationW/ComfyUI-Prompt-Manager",
+        "ver": "ebca063e3d2ae8268eddffd2cd26e6a5d6217993",
+        "Node name for S&R": "PromptGenOptionsZ"
       },
       "widgets_values": [
         "Qwen3-4B-Q8_0.gguf",
@@ -704,6 +712,29 @@
         0.05,
         1
       ]
+    },
+    {
+      "id": 147,
+      "type": "Note",
+      "pos": [
+        -653.4308588497848,
+        1003.2296258342874
+      ],
+      "size": [
+        399.91092069296496,
+        174.983513308679
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "If the System prompt is empty, it means it is using the default prompt.\n\nDon't hesitate to create your own System prompt by writing it into the \"Prompt Generator Options\" text box."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     }
   ],
   "links": [
@@ -804,14 +835,6 @@
       "GUIDER"
     ],
     [
-      292,
-      144,
-      0,
-      136,
-      1,
-      "STRING"
-    ],
-    [
       294,
       136,
       0,
@@ -820,18 +843,26 @@
       "CONDITIONING"
     ],
     [
-      295,
-      144,
+      300,
+      155,
       0,
       146,
       0,
-      "*"
+      "STRING"
     ],
     [
-      298,
-      153,
+      301,
+      155,
       0,
-      144,
+      136,
+      1,
+      "STRING"
+    ],
+    [
+      302,
+      154,
+      0,
+      155,
       0,
       "OPTIONS"
     ]
@@ -840,10 +871,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6303940863131337,
+      "scale": 0.473624407447884,
       "offset": [
-        1200.525365774651,
-        -971.6518409124808
+        1488.8093664163634,
+        -790.4513064545804
       ]
     },
     "frontendVersion": "1.34.8",
