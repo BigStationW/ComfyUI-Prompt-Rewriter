@@ -1,7 +1,5 @@
-# prompt_generator_options.py
-
-class PromptGenOptionsZ:
-    """Options node for Prompt Generator"""
+class PromptRewriterOptionsZ:
+    """Options node for Prompt Rewriter"""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -129,7 +127,7 @@ class PromptGenOptionsZ:
     def create_options(self, model, gpu_layers, enable_thinking, context_size, max_tokens, 
                     use_model_default_sampling, temperature, top_p, top_k, min_p, 
                     repeat_penalty, system_prompt="", 
-                    image_1 =None, image_2=None, image_3=None, image_4=None, image_5=None):
+                    image_1=None, image_2=None, image_3=None, image_4=None, image_5=None):
         
         from .model_manager import get_matching_mmproj
         
@@ -168,17 +166,17 @@ class PromptGenOptionsZ:
         if images_with_slots:
             options["images"] = images_with_slots  # Now it's list of (slot_num, tensor)
             if not mmproj:
-                print(f"[Prompt Generator Options] Warning: Images provided but no matching mmproj file found for model: {model}")
+                print(f"[Prompt Rewriter Options] Warning: Images provided but no matching mmproj file found for model: {model}")
         
         if mmproj:
-            print(f"[Prompt Generator Options] Using mmproj: {mmproj}")
+            print(f"[Prompt Rewriter Options] Using mmproj: {mmproj}")
         
         return (options,)
 
 NODE_CLASS_MAPPINGS = {
-    "PromptGenOptionsZ": PromptGenOptionsZ
+    "PromptRewriterOptionsZ": PromptRewriterOptionsZ
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptGenOptionsZ": "Prompt Generator Options"
+    "PromptRewriterOptionsZ": "Prompt Rewriter Options"
 }

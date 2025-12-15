@@ -12,7 +12,7 @@ import base64
 from io import BytesIO
 from PIL import Image
 import numpy as np
-from .model_manager import get_local_models, get_model_path, is_model_local, download_model
+from .model_manager import get_local_models, get_model_path, is_model_local
 
 # Import ComfyUI's model management for interrupt handling
 import comfy.model_management
@@ -47,6 +47,18 @@ def colorize(text, color='blue'):
 def print_section(title, color='red'):
     """Print a section header with consistent formatting"""
     print(colorize(f"--- <|{title.upper()}|> ---", color))
+
+def get_comfyui_root():
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+
+def ensure_gguf_folder():
+    comfyui_root = get_comfyui_root()
+    gguf_path = os.path.join(comfyui_root, "models", "LLM", "gguf")
+
+    os.makedirs(gguf_path, exist_ok=True)
+    return gguf_path
 
 # Global variable to track the server process
 _server_process = None
@@ -122,10 +134,10 @@ def setup_windows_job_object():
             ctypes.byref(info),
             ctypes.sizeof(info)
         )
-        print("[Prompt Generator] Job Object created - llama-server will be killed on console close")
+        print("[Prompt Rewriter] Job Object created - llama-server will be killed on console close")
             
     except Exception as e:
-        print(f"[Prompt Generator] Warning: Job object setup failed: {e}")
+        print(f"[Prompt Rewriter] Warning: Job object setup failed: {e}")
 
 
 def assign_process_to_job(process):
@@ -163,7 +175,7 @@ def setup_console_handler():
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
         def console_handler(event):
             if event in (CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT):
-                print(f"\n[Prompt Generator] Console closing (event {event}), cleaning up...")
+                print(f"\n[Prompt Rewriter] Console closing (event {event}), cleaning up...")
                 cleanup_server()
                 return False
             return False
@@ -173,12 +185,12 @@ def setup_console_handler():
         
         kernel32 = ctypes.windll.kernel32
         if kernel32.SetConsoleCtrlHandler(console_handler, True):
-            print("[Prompt Generator] Console close handler registered")
+            print("[Prompt Rewriter] Console close handler registered")
         else:
-            print("[Prompt Generator] Warning: Could not register console handler")
+            print("[Prompt Rewriter] Warning: Could not register console handler")
             
     except Exception as e:
-        print(f"[Prompt Generator] Warning: Console handler setup failed: {e}")
+        print(f"[Prompt Rewriter] Warning: Console handler setup failed: {e}")
 
 
 def cleanup_server():
@@ -187,16 +199,16 @@ def cleanup_server():
     
     if _server_process:
         try:
-            print("[Prompt Generator] Stopping server on exit...")
+            print("[Prompt Rewriter] Stopping server on exit...")
             _server_process.terminate()
             try:
                 _server_process.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 _server_process.kill()
                 _server_process.wait(timeout=2)
-            print("[Prompt Generator] Server stopped on exit")
+            print("[Prompt Rewriter] Server stopped on exit")
         except Exception as e:
-            print(f"[Prompt Generator] Error stopping server: {e}")
+            print(f"[Prompt Rewriter] Error stopping server: {e}")
         finally:
             _server_process = None
             _current_model = None
@@ -210,17 +222,17 @@ def cleanup_server():
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 if proc.info['name'] and 'llama-server' in proc.info['name'].lower():
-                    print(f"[Prompt Generator] Killing orphaned llama-server (PID: {proc.info['pid']})")
+                    print(f"[Prompt Rewriter] Killing orphaned llama-server (PID: {proc.info['pid']})")
                     proc.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except Exception as e:
-        print(f"[Prompt Generator] Error cleaning up orphaned processes: {e}")
+        print(f"[Prompt Rewriter] Error cleaning up orphaned processes: {e}")
 
 
 def signal_handler(signum, frame):
     """Handle termination signals"""
-    print(f"\n[Prompt Generator] Signal {signum} received, cleaning up...")
+    print(f"\n[Prompt Rewriter] Signal {signum} received, cleaning up...")
     cleanup_server()
     sys.exit(0)
 
@@ -232,7 +244,7 @@ setup_console_handler()
 try:
     signal.signal(signal.SIGTERM, signal_handler)
 except Exception as e:
-    print(f"[Prompt Generator] Warning: Could not register signal handlers: {e}")
+    print(f"[Prompt Rewriter] Warning: Could not register signal handlers: {e}")
 
 atexit.register(cleanup_server)
 
@@ -254,7 +266,7 @@ def get_model_layer_count(model_path):
         # Run with minimal settings just to get model info
         cmd = [server_cmd, "-m", model_path, "-ngl", "0", "-c", "512"]
         
-        print(f"[Prompt Generator] Detecting layer count for model...")
+        print(f"[Prompt Rewriter] Detecting layer count for model...")
         
         if os.name == 'nt':
             process = subprocess.Popen(
@@ -287,7 +299,7 @@ def get_model_layer_count(model_path):
             match = re.search(r'n_layer\s*=\s*(\d+)', decoded)
             if match:
                 layer_count = int(match.group(1))
-                print(f"[Prompt Generator] Detected {layer_count} layers")
+                print(f"[Prompt Rewriter] Detected {layer_count} layers")
                 break
         
         # Kill the process
@@ -304,11 +316,11 @@ def get_model_layer_count(model_path):
             _model_layer_cache[model_path] = layer_count
             return layer_count
         else:
-            print("[Prompt Generator] Warning: Could not detect layer count, using default 999")
+            print("[Prompt Rewriter] Warning: Could not detect layer count, using default 999")
             return None
             
     except Exception as e:
-        print(f"[Prompt Generator] Error detecting layers: {e}")
+        print(f"[Prompt Rewriter] Error detecting layers: {e}")
         return None
 
 
@@ -352,7 +364,7 @@ def parse_gpu_config(gpu_config_str, total_layers):
             gpu_specs.append((device_idx, layer_count))
             total_fraction += fraction if fraction <= 1.0 else (fraction / total_layers)
         else:
-            print(f"[Prompt Generator] Warning: Could not parse GPU spec '{part}'")
+            print(f"[Prompt Rewriter] Warning: Could not parse GPU spec '{part}'")
     
     if not gpu_specs:
         return None
@@ -361,7 +373,7 @@ def parse_gpu_config(gpu_config_str, total_layers):
     assigned_layers = sum(layers for _, layers in gpu_specs)
     cpu_layers = max(0, total_layers - assigned_layers)
     
-    print(f"[Prompt Generator] Layer distribution for {total_layers} layers:")
+    print(f"[Prompt Rewriter] Layer distribution for {total_layers} layers:")
     for device_idx, layers in gpu_specs:
         print(f"  GPU{device_idx}: {layers} layers ({layers/total_layers*100:.1f}%)")
     print(f"  CPU: {cpu_layers} layers ({cpu_layers/total_layers*100:.1f}%)")
@@ -422,10 +434,10 @@ def tensor_to_base64(image_tensor):
         
         return base64_str
     except Exception as e:
-        print(f"[Prompt Generator] Error converting image to base64: {e}")
+        print(f"[Prompt Rewriter] Error converting image to base64: {e}")
         return None
 
-class PromptGeneratorZ:
+class PromptRewriterZ:
     """Node that generates enhanced prompts using a llama.cpp server"""
 
     _prompt_cache = {}
@@ -483,7 +495,7 @@ class PromptGeneratorZ:
                 data = response.json()
                 return len(data.get("tokens", []))
         except Exception as e:
-            print(f"[Prompt Generator] Warning: Could not tokenize: {e}")
+            print(f"[Prompt Rewriter] Warning: Could not tokenize: {e}")
         return None
     
     # Change this line in cache key generation:
@@ -505,7 +517,7 @@ class PromptGeneratorZ:
     def is_server_alive():
         """Check if llama.cpp server is responding"""
         try:
-            response = requests.get(f"{PromptGeneratorZ.SERVER_URL}/health", timeout=2)
+            response = requests.get(f"{PromptRewriterZ.SERVER_URL}/health", timeout=2)
             return response.status_code == 200
         except:
             return False
@@ -516,7 +528,7 @@ class PromptGeneratorZ:
         global _model_default_params
         
         try:
-            response = requests.get(f"{PromptGeneratorZ.SERVER_URL}/props", timeout=5)
+            response = requests.get(f"{PromptRewriterZ.SERVER_URL}/props", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 params = data.get("default_generation_settings", {}).get("params", {})
@@ -529,10 +541,10 @@ class PromptGeneratorZ:
                     "repeat_penalty": round(params.get("repeat_penalty", 1.0), 4),
                 }
                 
-                print(f"[Prompt Generator] Fetched model defaults: {_model_default_params}")
+                print(f"[Prompt Rewriter] Fetched model defaults: {_model_default_params}")
                 return _model_default_params
         except Exception as e:
-            print(f"[Prompt Generator] Could not fetch model defaults: {e}")
+            print(f"[Prompt Rewriter] Could not fetch model defaults: {e}")
         
         return None
 
@@ -544,8 +556,8 @@ class PromptGeneratorZ:
         if _model_default_params is not None:
             return _model_default_params
         
-        if PromptGeneratorZ.is_server_alive():
-            return PromptGeneratorZ.fetch_model_defaults()
+        if PromptRewriterZ.is_server_alive():
+            return PromptRewriterZ.fetch_model_defaults()
         
         return None
 
@@ -555,7 +567,7 @@ class PromptGeneratorZ:
         global _server_process, _current_model, _current_gpu_config, _current_context_size, _model_default_params, _current_mmproj
 
         # Kill any existing llama-server processes first
-        PromptGeneratorZ.kill_all_llama_servers()
+        PromptRewriterZ.kill_all_llama_servers()
 
         # If server is already running with the same model, GPU config, context size, and mmproj, don't restart
         if (_server_process and 
@@ -563,37 +575,22 @@ class PromptGeneratorZ:
             _current_gpu_config == gpu_config and
             _current_context_size == context_size and
             _current_mmproj == mmproj and
-            PromptGeneratorZ.is_server_alive()):
-            print(f"[Prompt Generator] Server already running with model: {model_name}")
+            PromptRewriterZ.is_server_alive()):
+            print(f"[Prompt Rewriter] Server already running with model: {model_name}")
             return (True, None)
 
         # Stop existing server if running different model, GPU config, context size, or mmproj
         if _server_process:
-            PromptGeneratorZ.stop_server()
+            PromptRewriterZ.stop_server()
 
         # Reset model defaults when changing models
         _model_default_params = None
 
-        # Check if model needs to be downloaded
-        if not is_model_local(model_name):
-            print(f"[Prompt Generator] Model '{model_name}' not found locally, downloading from HuggingFace...")
-            try:
-                model_path = download_model(model_name)
-                if not model_path:
-                    error_msg = "Error: Failed to download model"
-                    print(f"[Prompt Generator] {error_msg}")
-                    return (False, error_msg)
-                print(f"[Prompt Generator] Download complete: {model_path}")
-            except Exception as e:
-                error_msg = f"Error downloading model: {e}"
-                print(f"[Prompt Generator] {error_msg}")
-                return (False, error_msg)
-        else:
-            model_path = get_model_path(model_name)
+        model_path = get_model_path(model_name)
 
         if not os.path.exists(model_path):
             error_msg = f"Error: Model file not found: {model_path}"
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             return (False, error_msg)
 
         # Check mmproj if specified
@@ -603,13 +600,13 @@ class PromptGeneratorZ:
             mmproj_path = get_mmproj_path(mmproj)
             if not os.path.exists(mmproj_path):
                 error_msg = f"Error: mmproj file not found: {mmproj_path}"
-                print(f"[Prompt Generator] {error_msg}")
+                print(f"[Prompt Rewriter] {error_msg}")
                 return (False, error_msg)
-            print(f"[Prompt Generator] Using mmproj: {mmproj}")
+            print(f"[Prompt Rewriter] Using mmproj: {mmproj}")
 
         try:
-            print(f"[Prompt Generator] Starting llama.cpp server with model: {model_name}")
-            print(f"[Prompt Generator] Context size: {context_size}")
+            print(f"[Prompt Rewriter] Starting llama.cpp server with model: {model_name}")
+            print(f"[Prompt Rewriter] Context size: {context_size}")
 
             if os.name == 'nt':
                 server_cmd = "llama-server.exe"
@@ -620,7 +617,7 @@ class PromptGeneratorZ:
             cmd = [
                 server_cmd, 
                 "-m", model_path, 
-                "--port", str(PromptGeneratorZ.SERVER_PORT),
+                "--port", str(PromptRewriterZ.SERVER_PORT),
                 "--no-warmup",
                 "--reasoning-format", "deepseek",
                 "-c", str(context_size)
@@ -647,8 +644,8 @@ class PromptGeneratorZ:
             
             cmd.extend(gpu_args)
             
-            print(f"[Prompt Generator] Command: {' '.join(cmd)}")
-            print("[Prompt Generator] Thinking mode: controlled per-request via chat_template_kwargs")
+            print(f"[Prompt Rewriter] Command: {' '.join(cmd)}")
+            print("[Prompt Rewriter] Thinking mode: controlled per-request via chat_template_kwargs")
 
             if os.name == 'nt':
                 _server_process = subprocess.Popen(
@@ -670,15 +667,15 @@ class PromptGeneratorZ:
             _current_context_size = context_size
             _current_mmproj = mmproj
 
-            print("[Prompt Generator] Waiting for server to be ready...")
+            print("[Prompt Rewriter] Waiting for server to be ready...")
             
             for i in range(60):
                 time.sleep(1)
                 
-                if PromptGeneratorZ.is_server_alive():
-                    print("[Prompt Generator] Server is ready!")
+                if PromptRewriterZ.is_server_alive():
+                    print("[Prompt Rewriter] Server is ready!")
                     # Fetch model defaults after server starts
-                    PromptGeneratorZ.fetch_model_defaults()
+                    PromptRewriterZ.fetch_model_defaults()
                     return (True, None)
                 
                 if _server_process.poll() is not None:
@@ -688,9 +685,9 @@ class PromptGeneratorZ:
                         output = ""
                     
                     error_msg = f"Error: Server crashed during startup. Exit code: {_server_process.returncode}"
-                    print(f"[Prompt Generator] {error_msg}")
+                    print(f"[Prompt Rewriter] {error_msg}")
                     if output:
-                        print(f"[Prompt Generator] Server output:\n{output}")
+                        print(f"[Prompt Rewriter] Server output:\n{output}")
                     
                     _server_process = None
                     _current_model = None
@@ -700,20 +697,20 @@ class PromptGeneratorZ:
                     return (False, error_msg + (f"\n\nServer output:\n{output[:1000]}" if output else ""))
                 
                 if (i + 1) % 10 == 0:
-                    print(f"[Prompt Generator] Still waiting... ({i + 1}s)")
+                    print(f"[Prompt Rewriter] Still waiting... ({i + 1}s)")
 
             error_msg = "Error: Server did not start in time (60s timeout)"
-            print(f"[Prompt Generator] {error_msg}")
-            PromptGeneratorZ.stop_server()
+            print(f"[Prompt Rewriter] {error_msg}")
+            PromptRewriterZ.stop_server()
             return (False, error_msg)
 
         except FileNotFoundError:
             error_msg = "Error: llama-server command not found. Please install llama.cpp and add to PATH.\nInstallation guide: https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md"
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             return (False, error_msg)
         except Exception as e:
             error_msg = f"Error starting server: {e}"
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             import traceback
             traceback.print_exc()
             return (False, error_msg)
@@ -725,13 +722,13 @@ class PromptGeneratorZ:
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 try:
                     if proc.info['name'] and 'llama-server' in proc.info['name'].lower():
-                        print(f"[Prompt Generator] Killing llama-server process (PID: {proc.info['pid']})")
+                        print(f"[Prompt Rewriter] Killing llama-server process (PID: {proc.info['pid']})")
                         proc.kill()
                         proc.wait(timeout=3)
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
                     pass
         except Exception as e:
-            print(f"[Prompt Generator] Error killing llama-server processes: {e}")
+            print(f"[Prompt Rewriter] Error killing llama-server processes: {e}")
 
     @staticmethod
     def stop_server():
@@ -740,10 +737,10 @@ class PromptGeneratorZ:
 
         if _server_process:
             try:
-                print("[Prompt Generator] Stopping server...")
+                print("[Prompt Rewriter] Stopping server...")
                 _server_process.terminate()
                 _server_process.wait(timeout=5)
-                print("[Prompt Generator] Server stopped")
+                print("[Prompt Rewriter] Server stopped")
             except:
                 try:
                     _server_process.kill()
@@ -757,12 +754,12 @@ class PromptGeneratorZ:
                 _current_mmproj = None
                 _model_default_params = None
 
-        PromptGeneratorZ.kill_all_llama_servers()
+        PromptRewriterZ.kill_all_llama_servers()
 
     def _print_debug_header(self, payload, enable_thinking, use_model_default_sampling, images_with_slots=None):
         """Helper to print debug info header"""
         print("\n" + "="*60)
-        print(" [Prompt Generator] DEBUG: TOKENS & MESSAGES IN ACTION")
+        print(" [Prompt Rewriter] DEBUG: TOKENS & MESSAGES IN ACTION")
         print("="*60)
         
         if enable_thinking:
@@ -854,13 +851,19 @@ class PromptGeneratorZ:
                 mmproj = options["mmproj"]
         
         if not model_to_use:
+            gguf_path = ensure_gguf_folder()
+
             local_models = get_local_models()
             if not local_models:
-                error_msg = "Error: No models found in models/ folder. Please add a .gguf model or connect options node to download one."
-                print(f"[Prompt Generator] {error_msg}")
+                error_msg = (
+                    "Error: No models found. "
+                    f"Please add a .gguf model in {gguf_path} folder."
+                )
+                print(f"[Prompt Rewriter] {error_msg}")
                 return (error_msg,)
-            model_to_use = local_models[0]
 
+            model_to_use = local_models[0]
+            
         # === BUILD CACHE KEY EARLY ===
         image_hash = self.get_image_hash(images)
         
@@ -894,12 +897,12 @@ class PromptGeneratorZ:
             _current_mmproj == mmproj and
             self.is_server_alive()):
             
-            print("[Prompt Generator] Returning cached prompt result (matches last run).")
+            print("[Prompt Rewriter] Returning cached prompt result (matches last run).")
             
             # Only do debug output if requested - minimal work
             if show_everything_in_console:
                 print("\n" + "="*60)
-                print(" [Prompt Generator] CACHED RESULT")
+                print(" [Prompt Rewriter] CACHED RESULT")
                 print("="*60)
                 print(f"\n🧠 THINKING MODE: {'ON' if enable_thinking else 'OFF'}")
                 print()
@@ -919,7 +922,7 @@ class PromptGeneratorZ:
         # Validate mmproj for images
         if images and not mmproj:
             error_msg = f"Error: Images provided but no matching mmproj file found for model '{model_to_use}'."
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             return (error_msg,)
 
         # Only restart server if needed
@@ -930,22 +933,22 @@ class PromptGeneratorZ:
             not self.is_server_alive()):
             
             if _current_model and _current_model != model_to_use:
-                print(f"[Prompt Generator] Model changed: {_current_model} → {model_to_use}")
+                print(f"[Prompt Rewriter] Model changed: {_current_model} → {model_to_use}")
             elif _current_gpu_config != gpu_config:
-                print(f"[Prompt Generator] GPU config changed: {_current_gpu_config} → {gpu_config}")
+                print(f"[Prompt Rewriter] GPU config changed: {_current_gpu_config} → {gpu_config}")
             elif _current_context_size != context_size:
-                print(f"[Prompt Generator] Context size changed: {_current_context_size} → {context_size}")
+                print(f"[Prompt Rewriter] Context size changed: {_current_context_size} → {context_size}")
             elif _current_mmproj != mmproj:
-                print(f"[Prompt Generator] mmproj changed: {_current_mmproj} → {mmproj}")
+                print(f"[Prompt Rewriter] mmproj changed: {_current_mmproj} → {mmproj}")
             else:
-                print(f"[Prompt Generator] Starting server with model: {model_to_use}")
+                print(f"[Prompt Rewriter] Starting server with model: {model_to_use}")
             
             self.stop_server()
             success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj)
             if not success:
                 return (error_msg,)
         else:
-            print("[Prompt Generator] Using existing server instance")
+            print("[Prompt Rewriter] Using existing server instance")
         
         # === TOKENIZATION (only for non-cached requests) ===
         cached_token_counts = None
@@ -954,12 +957,12 @@ class PromptGeneratorZ:
         
         # Log thinking mode
         if enable_thinking:
-            print("[Prompt Generator] Thinking: ON (per-request)")
+            print("[Prompt Rewriter] Thinking: ON (per-request)")
         else:
-            print("[Prompt Generator] Thinking: OFF (per-request)")
+            print("[Prompt Rewriter] Thinking: OFF (per-request)")
         
         if images:
-            print(f"[Prompt Generator] Images attached: {len(images)}")
+            print(f"[Prompt Rewriter] Images attached: {len(images)}")
 
         # Build user message content
         if images:
@@ -981,9 +984,9 @@ class PromptGeneratorZ:
                             "url": f"data:image/png;base64,{base64_img}"
                         }
                     })
-                    print(f"[Prompt Generator] Image {slot_num} encoded successfully")
+                    print(f"[Prompt Rewriter] Image {slot_num} encoded successfully")
                 else:
-                    print(f"[Prompt Generator] Warning: Failed to encode image {slot_num}")
+                    print(f"[Prompt Rewriter] Warning: Failed to encode image {slot_num}")
             user_content.append({
                 "type": "text",
                 "text": prompt
@@ -1007,14 +1010,14 @@ class PromptGeneratorZ:
         if use_model_default_sampling:
             model_defaults = self.get_model_defaults()
             if model_defaults:
-                print(f"[Prompt Generator] Applying model default sampling: temp={model_defaults.get('temperature')}, top_k={model_defaults.get('top_k')}, top_p={model_defaults.get('top_p')}, min_p={model_defaults.get('min_p')}, repeat_penalty={model_defaults.get('repeat_penalty')}")
+                print(f"[Prompt Rewriter] Applying model default sampling: temp={model_defaults.get('temperature')}, top_k={model_defaults.get('top_k')}, top_p={model_defaults.get('top_p')}, min_p={model_defaults.get('min_p')}, repeat_penalty={model_defaults.get('repeat_penalty')}")
                 payload["temperature"] = round(float(model_defaults.get("temperature", 0.8)), 4)
                 payload["top_k"] = int(model_defaults.get("top_k", 40))
                 payload["top_p"] = round(float(model_defaults.get("top_p", 0.95)), 4)
                 payload["min_p"] = round(float(model_defaults.get("min_p", 0.05)), 4)
                 payload["repeat_penalty"] = round(float(model_defaults.get("repeat_penalty", 1.0)), 4)
             else:
-                print("[Prompt Generator] Warning: Could not fetch model defaults, using fallback sampling values")
+                print("[Prompt Rewriter] Warning: Could not fetch model defaults, using fallback sampling values")
                 payload["temperature"] = 0.8
                 payload["top_k"] = 40
                 payload["top_p"] = 0.95
@@ -1039,7 +1042,7 @@ class PromptGeneratorZ:
 
         try:
             if _current_model:
-                print(f"[Prompt Generator] Generating with model: {_current_model}")
+                print(f"[Prompt Rewriter] Generating with model: {_current_model}")
             
             if show_everything_in_console:
                 self._print_debug_header(payload, enable_thinking, use_model_default_sampling, images)
@@ -1066,7 +1069,7 @@ class PromptGeneratorZ:
                 try:
                     comfy.model_management.throw_exception_if_processing_interrupted()
                 except comfy.model_management.InterruptProcessingException:
-                    print("[Prompt Generator] Generation interrupted by user")
+                    print("[Prompt Rewriter] Generation interrupted by user")
                     response.close()
                     if stop_server_after:
                         self.stop_server()
@@ -1149,10 +1152,10 @@ class PromptGeneratorZ:
                 )
 
             if not full_response:
-                print("[Prompt Generator] Warning: Empty response from server")
+                print("[Prompt Rewriter] Warning: Empty response from server")
                 full_response = prompt
 
-            print("[Prompt Generator] Successfully generated prompt")
+            print("[Prompt Rewriter] Successfully generated prompt")
 
             # Store ONLY this result, replacing any previous cache
             self._prompt_cache = {
@@ -1178,23 +1181,23 @@ class PromptGeneratorZ:
             if error_body:
                 error_msg += f"\nServer response: {error_body[:1000]}"
             
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             
             if images and e.response.status_code == 500:
-                print(f"[Prompt Generator] Note: This may be a VLM context issue. Current context: {context_size}")
+                print(f"[Prompt Rewriter] Note: This may be a VLM context issue. Current context: {context_size}")
             
             return (error_msg,)
         except requests.exceptions.ConnectionError:
             error_msg = f"Error: Could not connect to server at {full_url}. Server may have crashed."
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             return (error_msg,)
         except requests.exceptions.Timeout:
             error_msg = "Error: Request timed out (>300s)"
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             return (error_msg,)
         except Exception as e:
             error_msg = f"Error: {e}"
-            print(f"[Prompt Generator] {error_msg}")
+            print(f"[Prompt Rewriter] {error_msg}")
             import traceback
             traceback.print_exc()
             return (error_msg,)
@@ -1219,14 +1222,14 @@ class PromptGeneratorZ:
                 results["system"] = future_sys.result(timeout=15)
                 results["user"] = future_usr.result(timeout=15)
         except Exception as e:
-            print(f"[Prompt Generator] Warning: Parallel tokenization failed: {e}")
+            print(f"[Prompt Rewriter] Warning: Parallel tokenization failed: {e}")
         
         return results
 
     def _print_token_stats(self, usage_stats, cached_token_counts, thinking_content, full_response, images):
         """Print token statistics using pre-cached counts"""
         print("="*60)
-        print(" [Prompt Generator] TOKEN USAGE STATISTICS")
+        print(" [Prompt Rewriter] TOKEN USAGE STATISTICS")
         print("="*60)
 
         total_input = usage_stats.get('prompt_tokens', 0) if usage_stats else 0
@@ -1280,9 +1283,9 @@ class PromptGeneratorZ:
 
 
 NODE_CLASS_MAPPINGS = {
-    "PromptGeneratorZ": PromptGeneratorZ
+    "PromptRewriterZ": PromptRewriterZ
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptGeneratorZ": "Prompt Generator"
+    "PromptRewriterZ": "Prompt Rewriter"
 }

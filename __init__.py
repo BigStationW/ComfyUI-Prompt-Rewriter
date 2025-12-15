@@ -1,14 +1,14 @@
-from .prompt_generator import PromptGeneratorZ
-from .prompt_generator_options import PromptGenOptionsZ
+from .prompt_rewriter import PromptRewriterZ
+from .prompt_rewriter_options import PromptRewriterOptionsZ
 
 NODE_CLASS_MAPPINGS = {
-    "PromptGeneratorZ": PromptGeneratorZ,
-    "PromptGenOptionsZ": PromptGenOptionsZ
+    "PromptRewriterZ": PromptRewriterZ,
+    "PromptRewriterOptionsZ": PromptRewriterOptionsZ
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptGeneratorZ": "Prompt Generator",
-    "PromptGenOptionsZ": "Prompt Generator Options"
+    "PromptRewriterZ": "Prompt Rewriter",
+    "PromptRewriterOptionsZ": "Prompt Rewriter Options"
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY']
