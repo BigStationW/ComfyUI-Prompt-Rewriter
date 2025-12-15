@@ -66,9 +66,9 @@ For example:
 <img width="700" alt="image" src="https://github.com/user-attachments/assets/54bd5a5c-73c5-4271-856b-997bcb0a48c5" />
 
 ## Image inputs
-For visual models, you can add up to 5 images to the Prompt Generator Options node.
+For Vision Language Models (VLMs), you can add up to 5 images to the Prompt Generator Options node.
 
-1. Download a visual model and put it to the **ComfyUI\models\LLM\gguf** folder, like that one for example:
+1. Download a VLM gguf file and put it to the **ComfyUI\models\LLM\gguf** folder, like that one for example:
 
 - https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF
 
