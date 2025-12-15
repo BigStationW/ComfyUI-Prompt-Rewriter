@@ -129,7 +129,7 @@ class PromptGenOptionsZ:
     def create_options(self, model, gpu_layers, enable_thinking, context_size, max_tokens, 
                     use_model_default_sampling, temperature, top_p, top_k, min_p, 
                     repeat_penalty, system_prompt="", 
-                    image_1=None, image_2=None, image_3=None, image_4=None, image_5=None):
+                    image_1 =None, image_2=None, image_3=None, image_4=None, image_5=None):
         
         from .model_manager import get_matching_mmproj
         
@@ -142,7 +142,7 @@ class PromptGenOptionsZ:
         
         options = {
             "model": model,
-            "mmproj": mmproj,  # Automatically detected
+            "mmproj": mmproj,
             "gpu_config": gpu_layers.strip() if gpu_layers.strip() else "auto",
             "enable_thinking": enable_thinking,
             "context_size": context_size,
@@ -158,14 +158,15 @@ class PromptGenOptionsZ:
         if system_prompt.strip():
             options["system_prompt"] = system_prompt
         
-        # Collect images (filter out None values)
-        images = []
-        for img in [image_1, image_2, image_3, image_4, image_5]:
+        # Collect images WITH their slot numbers (preserving original numbering)
+        images_with_slots = []
+        all_images = [image_1, image_2, image_3, image_4, image_5]
+        for slot_num, img in enumerate(all_images, start=1):
             if img is not None:
-                images.append(img)
+                images_with_slots.append((slot_num, img))
         
-        if images:
-            options["images"] = images
+        if images_with_slots:
+            options["images"] = images_with_slots  # Now it's list of (slot_num, tensor)
             if not mmproj:
                 print(f"[Prompt Generator Options] Warning: Images provided but no matching mmproj file found for model: {model}")
         
@@ -173,7 +174,6 @@ class PromptGenOptionsZ:
             print(f"[Prompt Generator Options] Using mmproj: {mmproj}")
         
         return (options,)
-
 
 NODE_CLASS_MAPPINGS = {
     "PromptGenOptionsZ": PromptGenOptionsZ
