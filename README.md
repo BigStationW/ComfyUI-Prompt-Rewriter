@@ -3,7 +3,7 @@
 This is a custom fork of [this repository](https://github.com/FranckyB/ComfyUI-Prompt-Manager) incorporating [some enhancements](https://github.com/FranckyB/ComfyUI-Prompt-Manager/pull/3).
 
 ## Use case
-This node can rewrite your prompts with the help of a chosen instruct (or thinking) LLM (GGUF).
+This node can rewrite your prompts with the help of a chosen instruct (or thinking) LLM/VLM (GGUF).
 
 <img width="700" alt="AA" src="https://github.com/user-attachments/assets/c2b4de17-0121-4f9f-a845-3c0c52f74bce" />
 
