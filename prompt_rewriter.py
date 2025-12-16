@@ -20,11 +20,11 @@ import comfy.model_management
 def colorize(text, color='blue'):
     """
     Colorize console text using ANSI escape codes.
-    
+
     Args:
         text: Text to colorize
         color: Color name ('blue', 'cyan', 'green', 'yellow', 'red', 'magenta')
-    
+
     Returns:
         Colorized text string
     """
@@ -37,16 +37,85 @@ def colorize(text, color='blue'):
         'magenta': '\033[95m',   # Magenta
         'reset': '\033[0m'       # Reset to default
     }
-    
+
     color_code = colors.get(color.lower(), colors['blue'])
     reset_code = colors['reset']
-    
+
     return f"{color_code}{text}{reset_code}"
 
 # The color can be changed here
 def print_section(title, color='red'):
     """Print a section header with consistent formatting"""
     print(colorize(f"--- <|{title.upper()}|> ---", color))
+
+def get_local_llama_server():
+    """
+    Find llama-server in local llama_binaries_* folder (CUDA version).
+    Returns the full path to llama-server.exe if found, None otherwise.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Look for folders matching llama_binaries_*
+    try:
+        entries = os.listdir(script_dir)
+        llama_dirs = [e for e in entries if e.startswith('llama_binaries_') 
+                      and os.path.isdir(os.path.join(script_dir, e))]
+        
+        if not llama_dirs:
+            return None
+        
+        # Sort to get the latest version (assuming naming like llama_binaries_b7436)
+        llama_dirs.sort(reverse=True)
+        latest_dir = llama_dirs[0]
+        
+        # Check for llama-server executable
+        if os.name == 'nt':
+            server_path = os.path.join(script_dir, latest_dir, "llama-server.exe")
+        else:
+            server_path = os.path.join(script_dir, latest_dir, "llama-server")
+        
+        if os.path.exists(server_path):
+            print(f"[Prompt Rewriter] Found local CUDA llama-server: {server_path}")
+            return server_path
+        else:
+            print(f"[Prompt Rewriter] llama_binaries folder found but no llama-server inside: {latest_dir}")
+            return None
+            
+    except Exception as e:
+        print(f"[Prompt Rewriter] Error searching for local llama-server: {e}")
+        return None
+
+def get_backend_server_path(backend):
+    """
+    Get the llama-server path based on backend selection.
+    
+    Args:
+        backend: "CUDA" or "Vulkan"
+    
+    Returns:
+        Path to the appropriate llama-server executable, or None if not found
+    """
+    if backend == "Vulkan":
+        # System PATH version (winget installed)
+        if os.name == 'nt':
+            server_cmd = "llama-server.exe"
+        else:
+            server_cmd = "llama-server"
+        print(f"[Prompt Rewriter] Using Vulkan backend (system PATH)")
+        return server_cmd
+    elif backend == "CUDA":
+        # Local llama_binaries folder version
+        local_server = get_local_llama_server()
+        if local_server:
+            print(f"[Prompt Rewriter] Using CUDA backend (local binaries)")
+            return local_server
+        else:
+            print(f"[Prompt Rewriter] Warning: CUDA backend requested but no local llama_binaries found")
+            return None
+    else:
+        # Fallback (shouldn't happen with only CUDA/Vulkan options)
+        print(f"[Prompt Rewriter] Unknown backend '{backend}', defaulting to CUDA")
+        return get_local_llama_server()
 
 def get_comfyui_root():
     return os.path.abspath(
@@ -66,6 +135,7 @@ _current_model = None
 _current_gpu_config = None  # Track GPU configuration
 _current_context_size = None  # Track context size
 _current_mmproj = None  # Track mmproj file
+_current_backend = None  # Track which backend is being used
 _model_default_params = None  # Cache for model default parameters
 _model_layer_cache = {}  # Cache for model layer counts
 
@@ -75,10 +145,10 @@ _job_handle = None
 def setup_windows_job_object():
     """Create a Windows Job Object that kills child processes when parent exits"""
     global _job_handle
-    
+
     if os.name != 'nt':
         return
-    
+
     try:
         import ctypes
         from ctypes import wintypes
@@ -139,14 +209,13 @@ def setup_windows_job_object():
     except Exception as e:
         print(f"[Prompt Rewriter] Warning: Job object setup failed: {e}")
 
-
 def assign_process_to_job(process):
     """Assign subprocess to job object so it gets killed when parent exits"""
     global _job_handle
-    
+
     if os.name != 'nt' or not _job_handle or not process:
         return
-    
+
     try:
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -155,16 +224,14 @@ def assign_process_to_job(process):
     except:
         pass
 
-
 # Initialize job object at module load
 setup_windows_job_object()
-
 
 def setup_console_handler():
     """Set up Windows console control handler for console close, logoff, shutdown only"""
     if os.name != 'nt':
         return
-    
+
     try:
         import ctypes
         
@@ -192,11 +259,10 @@ def setup_console_handler():
     except Exception as e:
         print(f"[Prompt Rewriter] Warning: Console handler setup failed: {e}")
 
-
 def cleanup_server():
     """Cleanup function to stop server on exit"""
-    global _server_process, _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _model_default_params
-    
+    global _server_process, _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _current_backend, _model_default_params
+
     if _server_process:
         try:
             print("[Prompt Rewriter] Stopping server on exit...")
@@ -215,8 +281,9 @@ def cleanup_server():
             _current_gpu_config = None
             _current_context_size = None
             _current_mmproj = None
+            _current_backend = None
             _model_default_params = None
-    
+
     # Also kill any orphaned llama-server processes
     try:
         for proc in psutil.process_iter(['pid', 'name']):
@@ -229,13 +296,11 @@ def cleanup_server():
     except Exception as e:
         print(f"[Prompt Rewriter] Error cleaning up orphaned processes: {e}")
 
-
 def signal_handler(signum, frame):
     """Handle termination signals"""
     print(f"\n[Prompt Rewriter] Signal {signum} received, cleaning up...")
     cleanup_server()
     sys.exit(0)
-
 
 # === INITIALIZATION ===
 setup_windows_job_object()
@@ -248,20 +313,20 @@ except Exception as e:
 
 atexit.register(cleanup_server)
 
-
-def get_model_layer_count(model_path):
+def get_model_layer_count(model_path, backend="CUDA"):
     """Get the number of layers in a GGUF model by running llama-server briefly"""
     global _model_layer_cache
-    
+
     # Check cache first
     if model_path in _model_layer_cache:
         return _model_layer_cache[model_path]
-    
+
     try:
-        if os.name == 'nt':
-            server_cmd = "llama-server.exe"
-        else:
-            server_cmd = "llama-server"
+        # Get server path based on backend
+        server_cmd = get_backend_server_path(backend)
+        if server_cmd is None:
+            print(f"[Prompt Rewriter] Warning: Could not find llama-server for layer detection")
+            return None
         
         # Run with minimal settings just to get model info
         cmd = [server_cmd, "-m", model_path, "-ngl", "0", "-c", "512"]
@@ -323,27 +388,26 @@ def get_model_layer_count(model_path):
         print(f"[Prompt Rewriter] Error detecting layers: {e}")
         return None
 
-
 def parse_gpu_config(gpu_config_str, total_layers):
     """
     Parse GPU configuration string and return layer distribution.
-    
+
     Args:
         gpu_config_str: String like "gpu0:0.7" or "gpu0:0.5,gpu1:0.4" or "auto"
         total_layers: Total number of layers in the model
-    
+
     Returns:
         List of tuples: [(device_index, layer_count), ...] or None for auto
     """
     if not gpu_config_str or gpu_config_str.lower() in ('auto', 'all', ''):
         return None  # Use default -ngl 999
-    
+
     gpu_config_str = gpu_config_str.lower().strip()
-    
+
     # Parse each GPU specification
     gpu_specs = []
     total_fraction = 0.0
-    
+
     for part in gpu_config_str.split(','):
         part = part.strip()
         if not part:
@@ -365,21 +429,20 @@ def parse_gpu_config(gpu_config_str, total_layers):
             total_fraction += fraction if fraction <= 1.0 else (fraction / total_layers)
         else:
             print(f"[Prompt Rewriter] Warning: Could not parse GPU spec '{part}'")
-    
+
     if not gpu_specs:
         return None
-    
+
     # Calculate remaining layers for CPU
     assigned_layers = sum(layers for _, layers in gpu_specs)
     cpu_layers = max(0, total_layers - assigned_layers)
-    
+
     print(f"[Prompt Rewriter] Layer distribution for {total_layers} layers:")
     for device_idx, layers in gpu_specs:
         print(f"  GPU{device_idx}: {layers} layers ({layers/total_layers*100:.1f}%)")
     print(f"  CPU: {cpu_layers} layers ({cpu_layers/total_layers*100:.1f}%)")
-    
-    return gpu_specs
 
+    return gpu_specs
 
 def build_gpu_args(gpu_specs, total_layers):
     """
@@ -388,12 +451,12 @@ def build_gpu_args(gpu_specs, total_layers):
     if gpu_specs is None:
         # Auto mode: offload all to GPU 0
         return ["-ngl", "999", "--main-gpu", "0"]
-    
+
     if len(gpu_specs) == 1:
         # Single GPU with specific layer count
         device_idx, layer_count = gpu_specs[0]
         return ["-ngl", str(layer_count), "--main-gpu", str(device_idx)]
-    
+
     else:
         # Multi-GPU
         max_device = max(device_idx for device_idx, _ in gpu_specs)
@@ -408,11 +471,11 @@ def build_gpu_args(gpu_specs, total_layers):
         ts_str = ",".join(str(v) for v in split_values)
         
         return ["-ngl", ngl_value, "--tensor-split", ts_str]
-    
+
 def tensor_to_base64(image_tensor):
     """
     Convert a ComfyUI image tensor to base64-encoded PNG string.
-    
+
     ComfyUI images are tensors with shape [B, H, W, C] in float32 format (0-1 range).
     """
     try:
@@ -436,6 +499,7 @@ def tensor_to_base64(image_tensor):
     except Exception as e:
         print(f"[Prompt Rewriter] Error converting image to base64: {e}")
         return None
+
 
 class PromptRewriterZ:
     """Node that generates enhanced prompts using a llama.cpp server"""
@@ -461,6 +525,10 @@ class PromptRewriterZ:
                     "min": 0,
                     "max": 0xffffffffffffffff,
                     "tooltip": "Seed for reproducible generation."
+                }),
+                "backend": (["CUDA", "Vulkan"], {
+                    "default": "CUDA",
+                    "tooltip": "Backend: CUDA (local llama_binaries) or Vulkan (system PATH llama-server)"
                 }),
             },
             "optional": {
@@ -497,7 +565,7 @@ class PromptRewriterZ:
         except Exception as e:
             print(f"[Prompt Rewriter] Warning: Could not tokenize: {e}")
         return None
-    
+
     # Change this line in cache key generation:
     def get_image_hash(self, images):
         if not images:
@@ -512,7 +580,7 @@ class PromptRewriterZ:
             else:
                 hasher.update(item.cpu().numpy().tobytes())
         return hasher.hexdigest()
-    
+
     @staticmethod
     def is_server_alive():
         """Check if llama.cpp server is responding"""
@@ -562,24 +630,25 @@ class PromptRewriterZ:
         return None
 
     @staticmethod
-    def start_server(model_name, gpu_config=None, context_size=32768, mmproj=None):
-        """Start llama.cpp server with specified model, GPU configuration, context size, and optional mmproj"""
-        global _server_process, _current_model, _current_gpu_config, _current_context_size, _model_default_params, _current_mmproj
+    def start_server(model_name, gpu_config=None, context_size=32768, mmproj=None, backend="CUDA"):
+        """Start llama.cpp server with specified model, GPU configuration, context size, mmproj, and backend"""
+        global _server_process, _current_model, _current_gpu_config, _current_context_size, _model_default_params, _current_mmproj, _current_backend
 
         # Kill any existing llama-server processes first
         PromptRewriterZ.kill_all_llama_servers()
 
-        # If server is already running with the same model, GPU config, context size, and mmproj, don't restart
+        # If server is already running with the same model, GPU config, context size, mmproj, and backend, don't restart
         if (_server_process and 
             _current_model == model_name and 
             _current_gpu_config == gpu_config and
             _current_context_size == context_size and
             _current_mmproj == mmproj and
+            _current_backend == backend and
             PromptRewriterZ.is_server_alive()):
-            print(f"[Prompt Rewriter] Server already running with model: {model_name}")
+            print(f"[Prompt Rewriter] Server already running with model: {model_name} (backend: {backend})")
             return (True, None)
 
-        # Stop existing server if running different model, GPU config, context size, or mmproj
+        # Stop existing server if running different model, GPU config, context size, mmproj, or backend
         if _server_process:
             PromptRewriterZ.stop_server()
 
@@ -606,12 +675,21 @@ class PromptRewriterZ:
 
         try:
             print(f"[Prompt Rewriter] Starting llama.cpp server with model: {model_name}")
+            print(f"[Prompt Rewriter] Backend: {backend}")
             print(f"[Prompt Rewriter] Context size: {context_size}")
 
-            if os.name == 'nt':
-                server_cmd = "llama-server.exe"
-            else:
-                server_cmd = "llama-server"
+            # Get server path based on backend
+            server_cmd = get_backend_server_path(backend)
+            if server_cmd is None:
+                error_msg = f"Error: Could not find llama-server for backend '{backend}'. "
+                if backend == "CUDA":
+                    error_msg += "Please ensure llama_binaries_* folder exists with llama-server.exe"
+                else:
+                    error_msg += "Please ensure llama-server is installed and in system PATH"
+                print(f"[Prompt Rewriter] {error_msg}")
+                return (False, error_msg)
+
+            print(f"[Prompt Rewriter] Server path: {server_cmd}")
 
             # Build base command with context size
             cmd = [
@@ -630,7 +708,7 @@ class PromptRewriterZ:
             # Handle GPU configuration
             if gpu_config and gpu_config.lower() not in ('auto', 'all', ''):
                 # Get layer count for this model
-                total_layers = get_model_layer_count(model_path)
+                total_layers = get_model_layer_count(model_path, backend)
                 
                 if total_layers:
                     gpu_specs = parse_gpu_config(gpu_config, total_layers)
@@ -666,6 +744,7 @@ class PromptRewriterZ:
             _current_gpu_config = gpu_config
             _current_context_size = context_size
             _current_mmproj = mmproj
+            _current_backend = backend
 
             print("[Prompt Rewriter] Waiting for server to be ready...")
             
@@ -694,6 +773,7 @@ class PromptRewriterZ:
                     _current_gpu_config = None
                     _current_context_size = None
                     _current_mmproj = None
+                    _current_backend = None
                     return (False, error_msg + (f"\n\nServer output:\n{output[:1000]}" if output else ""))
                 
                 if (i + 1) % 10 == 0:
@@ -705,7 +785,11 @@ class PromptRewriterZ:
             return (False, error_msg)
 
         except FileNotFoundError:
-            error_msg = "Error: llama-server command not found. Please install llama.cpp and add to PATH.\nInstallation guide: https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md"
+            error_msg = f"Error: llama-server command not found for backend '{backend}'.\n"
+            if backend == "CUDA":
+                error_msg += "Please ensure llama_binaries_* folder exists with CUDA build of llama-server."
+            else:
+                error_msg += "Please install llama.cpp (Vulkan build) and add to PATH.\nInstallation guide: https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md"
             print(f"[Prompt Rewriter] {error_msg}")
             return (False, error_msg)
         except Exception as e:
@@ -733,7 +817,7 @@ class PromptRewriterZ:
     @staticmethod
     def stop_server():
         """Stop the llama.cpp server"""
-        global _server_process, _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _model_default_params
+        global _server_process, _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _current_backend, _model_default_params
 
         if _server_process:
             try:
@@ -752,6 +836,7 @@ class PromptRewriterZ:
                 _current_gpu_config = None
                 _current_context_size = None
                 _current_mmproj = None
+                _current_backend = None
                 _model_default_params = None
 
         PromptRewriterZ.kill_all_llama_servers()
@@ -817,10 +902,10 @@ class PromptRewriterZ:
                 if role.lower() == "user":
                     print()
 
-    def convert_prompt(self, prompt: str, seed: int, stop_server_after=False, 
+    def convert_prompt(self, prompt: str, seed: int, backend: str = "CUDA", stop_server_after=False, 
                     show_everything_in_console=False, options=None) -> str:
         """Convert prompt using llama.cpp server, with caching for repeated requests."""
-        global _current_model, _current_gpu_config, _current_context_size, _current_mmproj
+        global _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _current_backend
 
         if not prompt.strip():
             return ("",)
@@ -883,7 +968,8 @@ class PromptRewriterZ:
         else:
             options_tuple = ()
         
-        cache_key = (prompt, seed, model_to_use, options_tuple, image_hash)
+        # Include backend in cache key
+        cache_key = (prompt, seed, model_to_use, backend, options_tuple, image_hash)
 
         # === CHECK CACHE FIRST - BEFORE ANY HEAVY WORK ===
         # Only compare to the LAST cached result
@@ -895,6 +981,7 @@ class PromptRewriterZ:
             _current_gpu_config == gpu_config and
             _current_context_size == context_size and
             _current_mmproj == mmproj and
+            _current_backend == backend and
             self.is_server_alive()):
             
             print("[Prompt Rewriter] Returning cached prompt result (matches last run).")
@@ -930,6 +1017,7 @@ class PromptRewriterZ:
             _current_gpu_config != gpu_config or 
             _current_context_size != context_size or
             _current_mmproj != mmproj or
+            _current_backend != backend or
             not self.is_server_alive()):
             
             if _current_model and _current_model != model_to_use:
@@ -940,11 +1028,13 @@ class PromptRewriterZ:
                 print(f"[Prompt Rewriter] Context size changed: {_current_context_size} → {context_size}")
             elif _current_mmproj != mmproj:
                 print(f"[Prompt Rewriter] mmproj changed: {_current_mmproj} → {mmproj}")
+            elif _current_backend != backend:
+                print(f"[Prompt Rewriter] Backend changed: {_current_backend} → {backend}")
             else:
                 print(f"[Prompt Rewriter] Starting server with model: {model_to_use}")
             
             self.stop_server()
-            success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj)
+            success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj, backend)
             if not success:
                 return (error_msg,)
         else:
@@ -1042,7 +1132,7 @@ class PromptRewriterZ:
 
         try:
             if _current_model:
-                print(f"[Prompt Rewriter] Generating with model: {_current_model}")
+                print(f"[Prompt Rewriter] Generating with model: {_current_model} (backend: {_current_backend})")
             
             if show_everything_in_console:
                 self._print_debug_header(payload, enable_thinking, use_model_default_sampling, images)
@@ -1058,6 +1148,7 @@ class PromptRewriterZ:
             full_response = ""
             thinking_content = ""
             usage_stats = None
+            timings_stats = None
             first_content_received = False
             first_thinking_received = False
             
@@ -1088,6 +1179,8 @@ class PromptRewriterZ:
 
                             if "usage" in chunk:
                                 usage_stats = chunk["usage"]
+                            if "timings" in chunk:
+                                timings_stats = chunk["timings"]
 
                             if 'choices' in chunk and len(chunk['choices']) > 0:
                                 delta = chunk['choices'][0].get('delta', {})
@@ -1148,7 +1241,8 @@ class PromptRewriterZ:
                     cached_token_counts,
                     thinking_content, 
                     full_response, 
-                    images
+                    images,
+                    timings_stats
                 )
 
             if not full_response:
@@ -1226,10 +1320,22 @@ class PromptRewriterZ:
         
         return results
 
-    def _print_token_stats(self, usage_stats, cached_token_counts, thinking_content, full_response, images):
+    def _print_token_stats(self, usage_stats, cached_token_counts, thinking_content, full_response, images, timings_stats=None):
         """Print token statistics using pre-cached counts"""
+            # DEBUG: Print full timings from llama.cpp
+        if timings_stats:
+            print(f"[DEBUG] Full llama.cpp timings: {json.dumps(timings_stats, indent=2)}")
+        
+        # Get tokens per second from llama.cpp timings
+        tokens_per_sec = None
+        if timings_stats:
+            tokens_per_sec = timings_stats.get('predicted_per_second')
+        
         print("="*60)
-        print(" [Prompt Rewriter] TOKEN USAGE STATISTICS")
+        if tokens_per_sec:
+            print(f" [Prompt Rewriter] TOKEN USAGE STATISTICS ({tokens_per_sec:.2f} tokens/s)")
+        else:
+            print(" [Prompt Rewriter] TOKEN USAGE STATISTICS")
         print("="*60)
 
         total_input = usage_stats.get('prompt_tokens', 0) if usage_stats else 0

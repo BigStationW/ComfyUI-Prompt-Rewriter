@@ -19,7 +19,9 @@ git clone https://github.com/BigStationW/ComfyUI-Prompt-Rewriter
 ```
 ..\..\..\python_embeded\python.exe -s -m pip install -r "requirements.txt"
 ```
-3) If you have Windows, open cmd and run:
+### Backend: Vulkan -> Works on all GPUs
+
+If you have Windows, open cmd and run:
 ```
 winget install llama.cpp
 ```
@@ -29,6 +31,11 @@ To update llama.cpp, open cmd and run:
 ```
 winget upgrade llama.cpp
 ```
+
+### Backend: CUDA -> Specialized for Nvdia
+Double click the [Install llama.cpp (CUDA).bat](https://github.com/BigStationW/ComfyUI-Prompt-Rewriter/blob/BigStationW-patch-2/Install%20llama.cpp%20(CUDA).bat) file.
+
+To update your version, you can run that file again.
 
 ## Instruct/Thinking LLMs
 
