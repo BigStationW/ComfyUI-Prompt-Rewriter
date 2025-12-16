@@ -55,7 +55,7 @@ def get_matching_mmproj(model_name):
     for mmproj_file in mmproj_files:
         mmproj_base = re.sub(r'-mmproj.*$', '', mmproj_file, flags=re.IGNORECASE)
         if mmproj_base.lower() in base_name.lower() or base_name.lower() in mmproj_base.lower():
-            print(f"[Model Manager] Auto-detected mmproj (partial match): {mmproj_file} for model: {model_name}")
+            print(f"[Model Manager] Detected mmproj: {mmproj_file} for model: {model_name}")
             return mmproj_file
     
     print(f"[Model Manager] No matching mmproj found for: {model_name} (base: {base_name})")
