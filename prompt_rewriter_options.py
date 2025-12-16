@@ -135,12 +135,25 @@ class PromptRewriterOptionsZ:
         if model.startswith("⬇ "):
             model = model[2:]
         
-        # Auto-detect mmproj file
-        mmproj = get_matching_mmproj(model)
+        # Collect images WITH their slot numbers (preserving original numbering)
+        images_with_slots = []
+        all_images = [image_1, image_2, image_3, image_4, image_5]
+        for slot_num, img in enumerate(all_images, start=1):
+            if img is not None:
+                images_with_slots.append((slot_num, img))
+        
+        # Only auto-detect and use mmproj if images are connected
+        mmproj = None
+        if images_with_slots:
+            mmproj = get_matching_mmproj(model)
+            if mmproj:
+                print(f"[Prompt Rewriter Options] Using mmproj: {mmproj}")
+            else:
+                print(f"[Prompt Rewriter Options] Warning: Images provided but no matching mmproj file found for model: {model}")
         
         options = {
             "model": model,
-            "mmproj": mmproj,
+            "mmproj": mmproj,  # Will be None if no images
             "gpu_config": gpu_layers.strip() if gpu_layers.strip() else "auto",
             "enable_thinking": enable_thinking,
             "context_size": context_size,
@@ -156,20 +169,8 @@ class PromptRewriterOptionsZ:
         if system_prompt.strip():
             options["system_prompt"] = system_prompt
         
-        # Collect images WITH their slot numbers (preserving original numbering)
-        images_with_slots = []
-        all_images = [image_1, image_2, image_3, image_4, image_5]
-        for slot_num, img in enumerate(all_images, start=1):
-            if img is not None:
-                images_with_slots.append((slot_num, img))
-        
         if images_with_slots:
             options["images"] = images_with_slots  # Now it's list of (slot_num, tensor)
-            if not mmproj:
-                print(f"[Prompt Rewriter Options] Warning: Images provided but no matching mmproj file found for model: {model}")
-        
-        if mmproj:
-            print(f"[Prompt Rewriter Options] Using mmproj: {mmproj}")
         
         return (options,)
 
