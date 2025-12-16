@@ -953,6 +953,18 @@ class PromptRewriterZ:
                 return (error_msg,)
 
             model_to_use = local_models[0]
+
+        # === DETERMINE IF MMPROJ IS ACTUALLY NEEDED ===
+        # Only use mmproj if images are present
+        mmproj_to_use = None
+        if images:
+            if mmproj:
+                mmproj_to_use = mmproj
+            else:
+                error_msg = f"Error: Images provided but no matching mmproj file found for model '{model_to_use}'."
+                print(f"[Prompt Rewriter] {error_msg}")
+                return (error_msg,)
+        # If no images, mmproj_to_use stays None (don't load mmproj for text-only)
             
         # === BUILD CACHE KEY EARLY ===
         image_hash = self.get_image_hash(images)
@@ -985,7 +997,7 @@ class PromptRewriterZ:
             _current_model == model_to_use and
             _current_gpu_config == gpu_config and
             _current_context_size == context_size and
-            _current_mmproj == mmproj and
+            _current_mmproj == mmproj_to_use and  # Use mmproj_to_use here
             _current_backend == backend and
             self.is_server_alive()):
             
@@ -1011,17 +1023,11 @@ class PromptRewriterZ:
         else:
             system_prompt = self.DEFAULT_SYSTEM_PROMPT
 
-        # Validate mmproj for images
-        if images and not mmproj:
-            error_msg = f"Error: Images provided but no matching mmproj file found for model '{model_to_use}'."
-            print(f"[Prompt Rewriter] {error_msg}")
-            return (error_msg,)
-
         # Only restart server if needed
         if (_current_model != model_to_use or 
             _current_gpu_config != gpu_config or 
             _current_context_size != context_size or
-            _current_mmproj != mmproj or
+            _current_mmproj != mmproj_to_use or  # Use mmproj_to_use here
             _current_backend != backend or
             not self.is_server_alive()):
             
@@ -1031,20 +1037,20 @@ class PromptRewriterZ:
                 print(f"[Prompt Rewriter] GPU config changed: {_current_gpu_config} → {gpu_config}")
             elif _current_context_size != context_size:
                 print(f"[Prompt Rewriter] Context size changed: {_current_context_size} → {context_size}")
-            elif _current_mmproj != mmproj:
-                print(f"[Prompt Rewriter] mmproj changed: {_current_mmproj} → {mmproj}")
+            elif _current_mmproj != mmproj_to_use:
+                print(f"[Prompt Rewriter] mmproj changed: {_current_mmproj} → {mmproj_to_use}")
             elif _current_backend != backend:
                 print(f"[Prompt Rewriter] Backend changed: {_current_backend} → {backend}")
             else:
                 print(f"[Prompt Rewriter] Starting server with model: {model_to_use}")
             
             self.stop_server()
-            success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj, backend)
+            success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj_to_use, backend)  # Use mmproj_to_use
             if not success:
                 return (error_msg,)
         else:
             print("[Prompt Rewriter] Using existing server instance")
-        
+            
         # === TOKENIZATION (only for non-cached requests) ===
         cached_token_counts = None
         if show_everything_in_console:
