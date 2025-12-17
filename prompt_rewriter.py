@@ -535,18 +535,22 @@ class PromptRewriterZ:
                     "default": "CUDA",
                     "tooltip": "Backend: CUDA (local llama_binaries) or Vulkan (system PATH llama-server)"
                 }),
+                "options": ("OPTIONS", {
+                    "tooltip": "Connect options node to control model and parameters"
+                }),
             },
             "optional": {
                 "show_everything_in_console": ("BOOLEAN", {
                     "default": False,
                     "tooltip": "Print system prompt, user prompt, thinking process, and raw model response to the console."
                 }),
+                "keep_mmproj_loaded": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Keep mmproj loaded between runs to avoid server restarts (uses more VRAM)"
+                }),
                 "stop_server_after": ("BOOLEAN", {
                     "default": False,
                     "tooltip": "Stop the llama.cpp server after each prompt (for resource saving, but slower)."
-                }),
-                "options": ("OPTIONS", {
-                    "tooltip": "Optional: Connect options node to control model and parameters"
                 }),
             }
         }
@@ -907,7 +911,7 @@ class PromptRewriterZ:
                 if role.lower() == "user":
                     print()
 
-    def convert_prompt(self, prompt: str, seed: int, backend: str = "CUDA", stop_server_after=False, 
+    def convert_prompt(self, prompt: str, seed: int, backend: str = "CUDA", stop_server_after=False, keep_mmproj_loaded=True,
                     show_everything_in_console=False, options=None) -> str:
         """Convert prompt using llama.cpp server, with caching for repeated requests."""
         global _current_model, _current_gpu_config, _current_context_size, _current_mmproj, _current_backend
@@ -940,31 +944,31 @@ class PromptRewriterZ:
             if "mmproj" in options:
                 mmproj = options["mmproj"]
         
-        if not model_to_use:
-            gguf_path = ensure_gguf_folder()
-
-            local_models = get_local_models()
-            if not local_models:
-                error_msg = (
-                    "Error: No models found. "
-                    f"Please add a .gguf model in {gguf_path} folder."
-                )
-                print(f"[Prompt Rewriter] {error_msg}")
-                return (error_msg,)
-
-            model_to_use = local_models[0]
+        # ... model fallback code ...
 
         # === DETERMINE IF MMPROJ IS ACTUALLY NEEDED ===
-        # Only use mmproj if images are present
+        # NOTE: keep_mmproj_loaded comes from the function parameter, NOT from options!
         mmproj_to_use = None
         if images:
+            # Images present - mmproj is required
             if mmproj:
                 mmproj_to_use = mmproj
             else:
-                error_msg = f"Error: Images provided but no matching mmproj file found for model '{model_to_use}'."
+                error_msg = f"Error: Images provided but no matching mmproj file found."
                 print(f"[Prompt Rewriter] {error_msg}")
                 return (error_msg,)
-        # If no images, mmproj_to_use stays None (don't load mmproj for text-only)
+        elif keep_mmproj_loaded and mmproj:
+            # No images, but keep_mmproj_loaded is True - preload/keep mmproj
+            mmproj_to_use = mmproj
+            print(f"[Prompt Rewriter] Pre-loading mmproj (keep_mmproj_loaded=True): {mmproj}")
+        # else: mmproj_to_use stays None
+
+        # Debug: Show mmproj decision
+        if _current_mmproj and not mmproj_to_use:
+            print(f"[Prompt Rewriter] mmproj will be unloaded (keep_mmproj_loaded={keep_mmproj_loaded}, images={'present' if images else 'none'})")
+        elif mmproj_to_use and not _current_mmproj:
+            if not (keep_mmproj_loaded and mmproj and not images):  # Don't double-print
+                print(f"[Prompt Rewriter] mmproj will be loaded: {mmproj_to_use}")
             
         # === BUILD CACHE KEY EARLY ===
         image_hash = self.get_image_hash(images)
@@ -1031,25 +1035,42 @@ class PromptRewriterZ:
             _current_backend != backend or
             not self.is_server_alive()):
             
-            if _current_model and _current_model != model_to_use:
-                print(f"[Prompt Rewriter] Model changed: {_current_model} → {model_to_use}")
+            # Only restart server if needed
+            needs_restart = False
+            restart_reason = None
+
+            if _current_model != model_to_use:
+                needs_restart = True
+                restart_reason = f"Model changed: {_current_model} → {model_to_use}"
             elif _current_gpu_config != gpu_config:
-                print(f"[Prompt Rewriter] GPU config changed: {_current_gpu_config} → {gpu_config}")
+                needs_restart = True
+                restart_reason = f"GPU config changed: {_current_gpu_config} → {gpu_config}"
             elif _current_context_size != context_size:
-                print(f"[Prompt Rewriter] Context size changed: {_current_context_size} → {context_size}")
+                needs_restart = True
+                restart_reason = f"Context size changed: {_current_context_size} → {context_size}"
             elif _current_mmproj != mmproj_to_use:
-                print(f"[Prompt Rewriter] mmproj changed: {_current_mmproj} → {mmproj_to_use}")
+                needs_restart = True
+                if _current_mmproj and not mmproj_to_use:
+                    restart_reason = f"Unloading mmproj: {_current_mmproj}"
+                elif not _current_mmproj and mmproj_to_use:
+                    restart_reason = f"Loading mmproj: {mmproj_to_use}"
+                else:
+                    restart_reason = f"mmproj changed: {_current_mmproj} → {mmproj_to_use}"
             elif _current_backend != backend:
-                print(f"[Prompt Rewriter] Backend changed: {_current_backend} → {backend}")
+                needs_restart = True
+                restart_reason = f"Backend changed: {_current_backend} → {backend}"
+            elif not self.is_server_alive():
+                needs_restart = True
+                restart_reason = "Server not responding"
+
+            if needs_restart:
+                print(f"[Prompt Rewriter] {restart_reason}")
+                self.stop_server()
+                success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj_to_use, backend)
+                if not success:
+                    return (error_msg,)
             else:
-                print(f"[Prompt Rewriter] Starting server with model: {model_to_use}")
-            
-            self.stop_server()
-            success, error_msg = self.start_server(model_to_use, gpu_config, context_size, mmproj_to_use, backend)  # Use mmproj_to_use
-            if not success:
-                return (error_msg,)
-        else:
-            print("[Prompt Rewriter] Using existing server instance")
+                print("[Prompt Rewriter] Using existing server instance")
             
         # === TOKENIZATION (only for non-cached requests) ===
         cached_token_counts = None
