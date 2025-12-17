@@ -1,46 +1,81 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo ========================================
-echo   LLAMA.CPP Auto-Downloader
-echo ========================================
+REM ==========================================
+REM  Setup Logging
+REM ==========================================
+set "LOG_FILE=%~dp0llama_install_log.txt"
+if exist "%LOG_FILE%" del "%LOG_FILE%"
+
+call :Log "========================================"
+call :Log "  LLAMA.CPP Auto-Downloader (Stable)"
+call :Log "========================================"
+call :Log "Started at: %TIME%"
+call :Log "Log file: %LOG_FILE%"
 echo.
 
 set "BASE_DIR=%~dp0"
-
-echo [DEBUG] BASE_DIR = %BASE_DIR%
-echo.
+call :Log "[DEBUG] BASE_DIR = %BASE_DIR%"
 
 REM ==========================================
 REM  Detect GPU Type
 REM ==========================================
-echo [STEP 1] Detecting hardware...
+call :Log "[STEP 1] Detecting hardware..."
 
-set "BUILD_TYPE=cuda-12"
-set "FILE_PATTERN=win-cuda-12"
+set "BUILD_TYPE=cpu"
+set "FILE_PATTERN=win-x64"
 
 nvidia-smi >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [INFO] No NVIDIA GPU detected, using CPU build
-    set "BUILD_TYPE=cpu"
-    set "FILE_PATTERN=win-x64"
+    call :Log "[INFO] No NVIDIA GPU detected, using CPU build"
 ) else (
-    echo [OK] NVIDIA GPU detected
+    call :Log "[OK] NVIDIA GPU detected"
+    
+    set "MIN_COMPUTE_CAP=999"
+    set "GPU_COUNT=0"
+    
+    for /f "skip=1 tokens=*" %%a in ('nvidia-smi --query-gpu=compute_cap --format=csv 2^>nul') do (
+        set "CURRENT_GPU=!GPU_COUNT!"
+        set /a GPU_COUNT+=1
+        set "COMPUTE_CAP=%%a"
+        for /f "tokens=*" %%b in ("!COMPUTE_CAP!") do set "COMPUTE_CAP=%%b"
+        set "COMPUTE_CAP_NUM=!COMPUTE_CAP:.=!"
+        
+        call :Log "[INFO] GPU !CURRENT_GPU! Compute Capability: !COMPUTE_CAP!"
+        
+        if !COMPUTE_CAP_NUM! LSS !MIN_COMPUTE_CAP! (
+            set "MIN_COMPUTE_CAP=!COMPUTE_CAP_NUM!"
+        )
+    )
+    
+    if !GPU_COUNT! GTR 0 (
+        call :Log "[INFO] Minimum compute capability: !MIN_COMPUTE_CAP!"
+        if !MIN_COMPUTE_CAP! GEQ 50 (
+            call :Log "[OK] GPUs compatible with CUDA binaries"
+            set "BUILD_TYPE=cuda"
+            set "FILE_PATTERN=win-cuda"
+        ) else (
+            call :Log "[INFO] Older GPU detected, using CPU binaries"
+            set "BUILD_TYPE=cpu"
+            set "FILE_PATTERN=win-x64"
+        )
+    ) else (
+        call :Log "[WARNING] Could not detect compute capability, using CPU binaries"
+    )
 )
 
-echo [DEBUG] BUILD_TYPE = %BUILD_TYPE%
-echo [DEBUG] FILE_PATTERN = %FILE_PATTERN%
+call :Log "[DEBUG] BUILD_TYPE = !BUILD_TYPE!"
+call :Log "[DEBUG] FILE_PATTERN = !FILE_PATTERN!"
 echo.
 
 REM ==========================================
 REM  Check currently installed version
 REM ==========================================
-echo [STEP 2] Checking installed version...
+call :Log "[STEP 2] Checking installed version..."
 
 set "CURRENT_VERSION="
 set "CURRENT_DIR="
 
-REM Find existing llama_binaries_* folder
 for /d %%d in ("%BASE_DIR%llama_binaries_*") do (
     set "CURRENT_DIR=%%d"
     for %%n in ("%%~nxd") do (
@@ -50,328 +85,276 @@ for /d %%d in ("%BASE_DIR%llama_binaries_*") do (
 )
 
 if defined CURRENT_VERSION (
-    echo [INFO] Currently installed: %CURRENT_VERSION%
-    echo [DEBUG] Current folder: %CURRENT_DIR%
+    call :Log "[INFO] Currently installed: %CURRENT_VERSION%"
 ) else (
-    echo [INFO] No existing installation found
+    call :Log "[INFO] No existing installation found."
 )
 echo.
 
 REM ==========================================
 REM  Download release list
 REM ==========================================
-echo [STEP 3] Checking latest version on GitHub...
+call :Log "[STEP 3] Checking latest version on GitHub..."
 
 set "JSON_FILE=%TEMP%\llama_releases.json"
-
 if exist "%JSON_FILE%" del "%JSON_FILE%"
 
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15' -OutFile '%JSON_FILE%' -UseBasicParsing -ErrorAction Stop; Write-Host '[OK] Download successful' } catch { Write-Host '[ERROR]' $_.Exception.Message }"
+REM Using PowerShell to download JSON silently
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; try { Invoke-WebRequest -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15' -OutFile '%JSON_FILE%' -UseBasicParsing -ErrorAction Stop; Write-Host '[OK] Release list downloaded' } catch { Write-Host '[ERROR]' $_.Exception.Message; exit 1 }" >> "%LOG_FILE%" 2>&1
 
-if not exist "%JSON_FILE%" (
-    echo [ERROR] Failed to download release list
+if %errorlevel% neq 0 (
+    call :Log "[ERROR] Failed to download release list."
+    pause
     goto :error_exit
 )
 
-echo [OK] Release list downloaded
+if not exist "%JSON_FILE%" (
+    call :Log "[ERROR] JSON file missing."
+    pause
+    goto :error_exit
+)
+call :Log "[OK] Release list downloaded."
 echo.
 
 REM ==========================================
-REM  Parse releases to find one with binaries
+REM  Parse releases (STABLE METHOD)
 REM ==========================================
-echo [STEP 4] Searching for release with %BUILD_TYPE% binaries...
+call :Log "[STEP 4] Searching for release with %BUILD_TYPE% binaries..."
 
 set "PS_SCRIPT=%TEMP%\find_release.ps1"
+if exist "%PS_SCRIPT%" del "%PS_SCRIPT%"
 
-(
-echo $ErrorActionPreference = 'Stop'
-echo try {
-echo     $content = Get-Content '%JSON_FILE%' -Raw
-echo     $releases = $content ^| ConvertFrom-Json
-echo.
-echo     $pattern = '%FILE_PATTERN%'
-echo.
-echo     foreach($r in $releases^) {
-echo         $main = $r.assets ^| Where-Object { 
-echo             $_.name -match '^llama-.*-bin-.*win' -and 
-echo             $_.name -match $pattern -and 
-echo             $_.name -match '\.zip$'
-echo         } ^| Select-Object -First 1
-echo.
-echo         if($main^) {
-echo             Write-Host 'RESULT_VERSION:' $r.tag_name
-echo             Write-Host 'RESULT_MAIN:' $main.browser_download_url
-echo.
-echo             $cuda = $r.assets ^| Where-Object { $_.name -match '^cudart-' -and $_.name -match $pattern } ^| Select-Object -First 1
-echo             if($cuda^) {
-echo                 Write-Host 'RESULT_CUDA:' $cuda.browser_download_url
-echo             } else {
-echo                 Write-Host 'RESULT_CUDA: NONE'
-echo             }
-echo             exit 0
-echo         }
-echo     }
-echo     Write-Host '[PS] ERROR: No release found with matching binaries'
-echo     exit 1
-echo } catch {
-echo     Write-Host '[PS] ERROR:' $_.Exception.Message
-echo     exit 1
-echo }
-) > "%PS_SCRIPT%"
+REM --- WRITING LINE-BY-LINE (PREVENTS CRASHES) ---
+echo $ErrorActionPreference = 'Stop' >> "%PS_SCRIPT%"
+echo try { >> "%PS_SCRIPT%"
+echo     $content = Get-Content '%JSON_FILE%' -Raw >> "%PS_SCRIPT%"
+echo     $releases = $content ^| ConvertFrom-Json >> "%PS_SCRIPT%"
+echo     $pattern = '%FILE_PATTERN%' >> "%PS_SCRIPT%"
+echo     foreach($r in $releases) { >> "%PS_SCRIPT%"
+echo         $allAssets = $r.assets ^| Where-Object { >> "%PS_SCRIPT%"
+echo             $_.name -match '^llama-.*-bin-.*win' -and $_.name -match $pattern -and $_.name -match '.zip$' >> "%PS_SCRIPT%"
+echo         } >> "%PS_SCRIPT%"
+echo         $sortedAssets = $allAssets ^| Sort-Object { >> "%PS_SCRIPT%"
+echo             if ($_.name -match 'cuda-([0-9]+)') { [int]$matches[1] } else { 0 } >> "%PS_SCRIPT%"
+echo         } -Descending >> "%PS_SCRIPT%"
+echo         $main = $sortedAssets ^| Select-Object -First 1 >> "%PS_SCRIPT%"
+echo         if($main) { >> "%PS_SCRIPT%"
+echo             Write-Host 'RESULT_VERSION:' $r.tag_name >> "%PS_SCRIPT%"
+echo             Write-Host 'RESULT_MAIN:' $main.browser_download_url >> "%PS_SCRIPT%"
+echo             if ($main.name -match 'cuda-([0-9]+\.[0-9]+)') { >> "%PS_SCRIPT%"
+echo                 $cudaVer = $matches[1] >> "%PS_SCRIPT%"
+echo                 Write-Host 'RESULT_CUDA_VER:' $cudaVer >> "%PS_SCRIPT%"
+echo                 $cudaPattern = 'cudart-.*cuda-' + $cudaVer >> "%PS_SCRIPT%"
+echo                 $cuda = $r.assets ^| Where-Object { $_.name -match $cudaPattern } ^| Select-Object -First 1 >> "%PS_SCRIPT%"
+echo                 if ($cuda) { Write-Host 'RESULT_CUDA:' $cuda.browser_download_url } else { Write-Host 'RESULT_CUDA: NONE' } >> "%PS_SCRIPT%"
+echo             } else { Write-Host 'RESULT_CUDA: NONE' } >> "%PS_SCRIPT%"
+echo             exit 0 >> "%PS_SCRIPT%"
+echo         } >> "%PS_SCRIPT%"
+echo     } >> "%PS_SCRIPT%"
+echo     Write-Host '[PS] ERROR: No release found' >> "%PS_SCRIPT%"
+echo     exit 1 >> "%PS_SCRIPT%"
+echo } catch { Write-Host '[PS] ERROR:' $_.Exception.Message; exit 1 } >> "%PS_SCRIPT%"
+
+call :Log "[DEBUG] Parsing JSON..."
 
 set "LATEST_VERSION="
 set "MAIN_URL="
 set "CUDA_URL="
+set "CUDA_VER="
 
 for /f "tokens=1,* delims=:" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" 2^>^&1') do (
     set "KEY=%%a"
     set "VAL=%%b"
+    for /f "tokens=*" %%v in ("!VAL!") do set "VAL=%%v"
     
-    if "!KEY!"=="RESULT_VERSION" set "LATEST_VERSION=!VAL:~1!"
-    if "!KEY!"=="RESULT_MAIN" set "MAIN_URL=!VAL:~1!"
-    if "!KEY!"=="RESULT_CUDA" set "CUDA_URL=!VAL:~1!"
+    if "!KEY!"=="RESULT_VERSION" set "LATEST_VERSION=!VAL!"
+    if "!KEY!"=="RESULT_MAIN" set "MAIN_URL=!VAL!"
+    if "!KEY!"=="RESULT_CUDA" set "CUDA_URL=!VAL!"
+    if "!KEY!"=="RESULT_CUDA_VER" set "CUDA_VER=!VAL!"
+    if "!KEY!"=="[PS] ERROR" (
+        call :Log "[ERROR] PowerShell script failed: !VAL!"
+        pause
+        goto :error_exit
+    )
 )
 
-del "%PS_SCRIPT%" 2>nul
-del "%JSON_FILE%" 2>nul
+if exist "%PS_SCRIPT%" del "%PS_SCRIPT%" 2>nul
+if exist "%JSON_FILE%" del "%JSON_FILE%" 2>nul
 
 if "%CUDA_URL%"=="NONE" set "CUDA_URL="
-if "%CUDA_URL%"==" NONE" set "CUDA_URL="
 
-echo [DEBUG] Latest version: %LATEST_VERSION%
-echo [DEBUG] Main URL: %MAIN_URL%
-
+echo.
 if not defined MAIN_URL (
-    echo [ERROR] Could not find any release with %BUILD_TYPE% binaries
+    call :Log "[ERROR] Could not find any release with %BUILD_TYPE% binaries."
+    pause
     goto :error_exit
 )
 
-echo [OK] Latest available: %LATEST_VERSION%
+call :Log "[OK] Latest available: %LATEST_VERSION%"
+if defined CUDA_VER call :Log "[INFO] CUDA Version: %CUDA_VER%"
 echo.
 
 REM ==========================================
-REM  Compare versions - skip if already current
+REM  Compare versions
 REM ==========================================
-echo [STEP 5] Comparing versions...
+call :Log "[STEP 5] Comparing versions..."
 
 if "%CURRENT_VERSION%"=="%LATEST_VERSION%" (
     echo.
-    echo ========================================
-    echo   ALREADY UP TO DATE!
-    echo ========================================
-    echo.
-    echo   Installed version: %CURRENT_VERSION%
-    echo   Latest version:    %LATEST_VERSION%
-    echo.
-    echo   Location: %CURRENT_DIR%
-    echo.
-    echo   No update needed.
-    echo.
-    echo ========================================
-    echo.
+    call :Log "========================================"
+    call :Log "  ALREADY UP TO DATE!"
+    call :Log "========================================"
+    call :Log "  Installed: %CURRENT_VERSION%"
+    call :Log "  Location:  %CURRENT_DIR%"
+    call :Log "========================================"
     pause
     exit /b 0
 )
 
-if defined CURRENT_VERSION (
-    echo [INFO] Update available: %CURRENT_VERSION% -^> %LATEST_VERSION%
-) else (
-    echo [INFO] Will install: %LATEST_VERSION%
-)
+call :Log "[INFO] Installing: %LATEST_VERSION%"
 echo.
 
 REM ==========================================
-REM  Set up new directory with version
+REM  Setup Directory
 REM ==========================================
 set "BUILD_DIR=%BASE_DIR%llama_binaries_%LATEST_VERSION%"
+call :Log "[STEP 6] Preparing directory: %BUILD_DIR%"
 
-echo [DEBUG] New folder will be: %BUILD_DIR%
-echo.
-
-REM ==========================================
-REM  Prepare directory
-REM ==========================================
-echo [STEP 6] Preparing directory...
-
-if exist "%BUILD_DIR%" (
-    echo [DEBUG] Removing incomplete installation...
-    rmdir /s /q "%BUILD_DIR%"
-)
-
+if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 mkdir "%BUILD_DIR%"
+
 if not exist "%BUILD_DIR%" (
-    echo [ERROR] Failed to create directory: %BUILD_DIR%
+    call :Log "[ERROR] Failed to create directory."
+    pause
     goto :error_exit
 )
-
-echo [OK] Directory ready: %BUILD_DIR%
 echo.
 
 REM ==========================================
-REM  Download main binaries
+REM  Download Files
 REM ==========================================
-echo [STEP 7] Downloading main binaries...
-echo [INFO] URL: %MAIN_URL%
-echo [INFO] This may take a few minutes...
+call :Log "[STEP 7] Downloading main binaries..."
+call :Log "[INFO] URL: %MAIN_URL%"
+echo.
 
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '%MAIN_URL%' -OutFile '%BUILD_DIR%\main.zip' -UseBasicParsing -ErrorAction Stop; Write-Host '[OK] Download complete' } catch { Write-Host '[ERROR]' $_.Exception.Message }"
+REM Using CURL with --ssl-no-revoke to fix error 0x80092012
+curl -4 -L --ssl-no-revoke --retry 5 --retry-delay 2 -o "%BUILD_DIR%\main.zip" "%MAIN_URL%"
+
+if %errorlevel% neq 0 (
+    echo.
+    call :Log "[WARNING] Curl failed. Trying fallback to PowerShell..."
+    powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '%MAIN_URL%' -OutFile '%BUILD_DIR%\main.zip' -UseBasicParsing"
+)
 
 if not exist "%BUILD_DIR%\main.zip" (
-    echo [ERROR] Failed to download main binaries
+    call :Log "[ERROR] Download failed (File not found)."
+    pause
     goto :error_exit
 )
 
+REM --- SAFETY CHECK ---
+set "MAIN_SIZE=0"
 for %%A in ("%BUILD_DIR%\main.zip") do set "MAIN_SIZE=%%~zA"
 
-if %MAIN_SIZE% LSS 10000000 (
-    echo [ERROR] File too small ^(%MAIN_SIZE% bytes^). Download may have failed.
+call :Log "[DEBUG] Main Zip Size: !MAIN_SIZE! bytes"
+
+if !MAIN_SIZE! LSS 10000000 (
+    call :Log "[ERROR] File too small (!MAIN_SIZE! bytes). Download likely failed."
+    pause
     goto :error_exit
 )
-
-echo [OK] Main binaries downloaded: %MAIN_SIZE% bytes
+call :Log "[OK] Main binaries downloaded."
 echo.
 
-REM ==========================================
-REM  Download CUDA runtime (optional)
-REM ==========================================
 if defined CUDA_URL (
-    echo [STEP 8] Downloading CUDA runtime...
-    echo [INFO] URL: %CUDA_URL%
-    echo [INFO] This is a large file ~370MB, please wait...
-    
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '%CUDA_URL%' -OutFile '%BUILD_DIR%\cudart.zip' -UseBasicParsing -ErrorAction Stop; Write-Host '[OK] Download complete' } catch { Write-Host '[ERROR]' $_.Exception.Message }"
-    
-    if exist "%BUILD_DIR%\cudart.zip" (
-        for %%A in ("%BUILD_DIR%\cudart.zip") do echo [OK] CUDA runtime downloaded: %%~zA bytes
-    ) else (
-        echo [WARNING] CUDA runtime download failed
-        echo [WARNING] GPU acceleration may not work
-    )
+    call :Log "[STEP 8] Downloading CUDA runtime..."
+    call :Log "[INFO] URL: !CUDA_URL!"
     echo.
-) else (
-    echo [STEP 8] Skipping CUDA runtime ^(not available^)
+    
+    curl -4 -L --ssl-no-revoke --retry 5 --retry-delay 2 -o "%BUILD_DIR%\cudart.zip" "!CUDA_URL!"
+    
+    if !errorlevel! neq 0 (
+        echo.
+        call :Log "[WARNING] Curl failed. Trying fallback to PowerShell..."
+        powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '!CUDA_URL!' -OutFile '%BUILD_DIR%\cudart.zip' -UseBasicParsing"
+    )
     echo.
 )
 
 REM ==========================================
-REM  Extract files
+REM  Extract and Organize
 REM ==========================================
-echo [STEP 9] Extracting files...
+call :Log "[STEP 9] Extracting and Organizing..."
 
 cd /d "%BUILD_DIR%"
 
-echo [DEBUG] Extracting main.zip...
-powershell -NoProfile -Command "try { Expand-Archive -Path 'main.zip' -DestinationPath '.' -Force -ErrorAction Stop; Write-Host '[OK] Extracted main.zip' } catch { Write-Host '[ERROR]' $_.Exception.Message }"
-
-if exist main.zip del main.zip
+call :Log "[DEBUG] Extracting main.zip..."
+powershell -NoProfile -Command "try { Expand-Archive -Path 'main.zip' -DestinationPath '.' -Force -ErrorAction Stop } catch { exit 1 }"
+if %errorlevel% neq 0 (
+    call :Log "[ERROR] Failed to extract main.zip"
+    pause
+    goto :error_exit
+)
+del main.zip
 
 if exist cudart.zip (
-    echo [DEBUG] Extracting cudart.zip...
-    powershell -NoProfile -Command "try { Expand-Archive -Path 'cudart.zip' -DestinationPath '.' -Force -ErrorAction Stop; Write-Host '[OK] Extracted cudart.zip' } catch { Write-Host '[ERROR]' $_.Exception.Message }"
+    call :Log "[DEBUG] Extracting cudart.zip..."
+    powershell -NoProfile -Command "try { Expand-Archive -Path 'cudart.zip' -DestinationPath '.' -Force -ErrorAction Stop } catch { exit 1 }"
     del cudart.zip
 )
 
-echo.
-
-REM ==========================================
-REM  Move files from subfolders
-REM ==========================================
-echo [STEP 10] Organizing files...
-
+REM Move files from nested folders
 for /d %%d in ("llama-*") do (
-    echo [DEBUG] Moving files from %%d to root...
+    call :Log "[DEBUG] Moving files from %%d..."
     xcopy "%%d\*" "." /E /Y /Q >nul
     rmdir /s /q "%%d"
 )
-
 for /d %%d in ("cudart-*") do (
-    echo [DEBUG] Moving CUDA files from %%d to root...
+    call :Log "[DEBUG] Moving files from %%d..."
     xcopy "%%d\*" "." /E /Y /Q >nul
     rmdir /s /q "%%d"
 )
 
-echo.
-
 REM ==========================================
-REM  Verify installation
-REM ==========================================
-echo [STEP 11] Verifying installation...
-
-set "EXE_COUNT=0"
-for %%f in (*.exe) do set /a EXE_COUNT+=1
-
-echo [DEBUG] Found %EXE_COUNT% executables
-
-if %EXE_COUNT%==0 (
-    echo [ERROR] No executables found!
-    echo.
-    echo Directory contents:
-    dir
-    goto :error_exit
-)
-
-REM ==========================================
-REM  Remove old version (only after successful install)
+REM  Cleanup Old Version
 REM ==========================================
 if defined CURRENT_DIR (
     if exist "%CURRENT_DIR%" (
-        echo.
-        echo [STEP 12] Removing old version: %CURRENT_VERSION%
+        call :Log "[INFO] Removing old version folder..."
         rmdir /s /q "%CURRENT_DIR%"
-        if exist "%CURRENT_DIR%" (
-            echo [WARNING] Could not fully remove old folder
-        ) else (
-            echo [OK] Old version removed
-        )
     )
 )
 
 REM ==========================================
-REM  Success!
+REM  Finish
 REM ==========================================
 echo.
-echo ========================================
-echo   SUCCESS! 
-echo ========================================
-echo.
-if defined CURRENT_VERSION (
-    echo   Updated: %CURRENT_VERSION% -^> %LATEST_VERSION%
-) else (
-    echo   Installed: %LATEST_VERSION%
-)
-echo.
-echo   Location: %BUILD_DIR%
-echo   Executables: %EXE_COUNT%
-echo.
-echo Key files:
-if exist "llama-cli.exe" echo   [OK] llama-cli.exe
-if exist "llama-server.exe" echo   [OK] llama-server.exe  
-if exist "llama-quantize.exe" echo   [OK] llama-quantize.exe
-if exist "llama-bench.exe" echo   [OK] llama-bench.exe
-echo.
-echo ========================================
+call :Log "========================================"
+call :Log "  SUCCESS! Installed: %LATEST_VERSION%"
+call :Log "========================================"
+call :Log "  Location: %BUILD_DIR%"
 echo.
 pause
 exit /b 0
 
-REM ==========================================
-REM  Error handler
-REM ==========================================
 :error_exit
 echo.
-echo ========================================
-echo   FAILED - See errors above
-echo ========================================
-echo.
-
-REM Clean up failed installation attempt
+call :Log "[FATAL ERROR] The script encountered an error."
 if defined BUILD_DIR (
     if exist "%BUILD_DIR%" (
-        echo [DEBUG] Cleaning up failed installation...
-        rmdir /s /q "%BUILD_DIR%" 2>nul
+         call :Log "[DEBUG] Cleaning up failed dir: %BUILD_DIR%"
+         rmdir /s /q "%BUILD_DIR%" 2>nul
     )
 )
-
-echo Press any key to exit...
-pause >nul
+echo.
+echo Check the log file for details: %LOG_FILE%
+pause
 exit /b 1
+
+REM ==========================================
+REM  Logging Helper
+REM ==========================================
+:Log
+echo %~1
+echo %~1 >> "%LOG_FILE%"
+exit /b
