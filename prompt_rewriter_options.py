@@ -142,18 +142,20 @@ class PromptRewriterOptionsZ:
             if img is not None:
                 images_with_slots.append((slot_num, img))
         
-        # Only auto-detect and use mmproj if images are connected
-        mmproj = None
-        if images_with_slots:
-            mmproj = get_matching_mmproj(model)
-            if mmproj:
+        # Always try to detect mmproj for the model (for keep_mmproj_loaded feature)
+        # The main node will decide whether to actually load it
+        mmproj = get_matching_mmproj(model)
+        if mmproj:
+            if images_with_slots:
                 print(f"[Prompt Rewriter Options] Using mmproj: {mmproj}")
             else:
-                print(f"[Prompt Rewriter Options] Warning: Images provided but no matching mmproj file found for model: {model}")
+                print(f"[Prompt Rewriter Options] mmproj available: {mmproj} (will load if keep_mmproj_loaded=True)")
+        elif images_with_slots:
+            print(f"[Prompt Rewriter Options] Warning: Images provided but no matching mmproj file found for model: {model}")
         
         options = {
             "model": model,
-            "mmproj": mmproj,  # Will be None if no images
+            "mmproj": mmproj,  # Always pass mmproj if found (main node decides whether to use it)
             "gpu_config": gpu_layers.strip() if gpu_layers.strip() else "auto",
             "enable_thinking": enable_thinking,
             "context_size": context_size,

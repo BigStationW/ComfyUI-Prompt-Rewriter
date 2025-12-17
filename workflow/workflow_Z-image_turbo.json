@@ -1,8 +1,8 @@
 {
   "id": "44259803-f9d6-4eb1-a94a-75b8213649d0",
   "revision": 0,
-  "last_node_id": 158,
-  "last_link_id": 308,
+  "last_node_id": 159,
+  "last_link_id": 311,
   "nodes": [
     {
       "id": 10,
@@ -452,7 +452,7 @@
           "widget": {
             "name": "text"
           },
-          "link": 308
+          "link": 311
         }
       ],
       "outputs": [
@@ -532,7 +532,7 @@
           "dir": 3,
           "name": "source",
           "type": "*",
-          "link": 307
+          "link": 310
         }
       ],
       "outputs": [],
@@ -667,7 +667,7 @@
           "name": "options",
           "type": "OPTIONS",
           "links": [
-            306
+            309
           ]
         }
       ],
@@ -693,15 +693,15 @@
       ]
     },
     {
-      "id": 158,
+      "id": 159,
       "type": "PromptRewriterZ",
       "pos": [
-        67.34418487548828,
-        1339.806884765625
+        23.845714569091797,
+        1373.4569091796875
       ],
       "size": [
-        438.14923095703125,
-        309.56036376953125
+        462.9306640625,
+        324.5676574707031
       ],
       "flags": {},
       "order": 11,
@@ -709,9 +709,8 @@
       "inputs": [
         {
           "name": "options",
-          "shape": 7,
           "type": "OPTIONS",
-          "link": 306
+          "link": 309
         }
       ],
       "outputs": [
@@ -719,14 +718,14 @@
           "name": "output",
           "type": "STRING",
           "links": [
-            307,
-            308
+            310,
+            311
           ]
         }
       ],
       "properties": {
         "cnr_id": "prompt-rewriter",
-        "ver": "db52e977be79f4309e6a8a49ff9dbf0c94d1f6b3",
+        "ver": "410057a018eac31fbfc9d5c5f259f4fa998e9621",
         "Node name for S&R": "PromptRewriterZ"
       },
       "widgets_values": [
@@ -735,6 +734,7 @@
         "fixed",
         "Vulkan",
         true,
+        false,
         false
       ]
     }
@@ -845,24 +845,24 @@
       "CONDITIONING"
     ],
     [
-      306,
+      309,
       156,
       0,
-      158,
+      159,
       0,
       "OPTIONS"
     ],
     [
-      307,
-      158,
+      310,
+      159,
       0,
       146,
       0,
       "*"
     ],
     [
-      308,
-      158,
+      311,
+      159,
       0,
       136,
       1,
@@ -873,10 +873,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.5559917313492309,
+      "scale": 0.6706807401723723,
       "offset": [
-        904.8935574666078,
-        -991.7297363936382
+        649.8517557515883,
+        -1252.3111468165825
       ]
     },
     "frontendVersion": "1.34.8",
