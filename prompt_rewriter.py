@@ -1322,7 +1322,10 @@ class PromptRewriterZ:
             print(f"[Prompt Rewriter] {error_msg}")
             
             if images and e.response.status_code == 500:
-                print(f"[Prompt Rewriter] Note: This may be a VLM context issue. Current context: {context_size}")
+                print(
+                    f"When processing images, this can happen if the context window is too small. "
+                    f"Consider increasing context_size (current: {context_size})."
+                )
             
             return (error_msg,)
         except requests.exceptions.ConnectionError:
