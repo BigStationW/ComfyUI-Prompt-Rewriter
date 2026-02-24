@@ -110,12 +110,22 @@ mkdir -p "$LLAMA_BINARIES_DIR"
 # Create symlinks to all relevant binaries and files
 cd "$LLAMA_BINARIES_DIR"
 
-# Find all binaries and create symlinks
-find "$LLAMA_BREW_PREFIX/bin" -name "llama*" -type f -executable | while read -r binary; do
+# Find all llama binaries and create symlinks
+# Note: macOS find doesn't support -executable, so we use -perm +111
+find "$LLAMA_BREW_PREFIX/bin" -name "llama*" -type f -perm +111 | while read -r binary; do
     binary_name=$(basename "$binary")
     log "Creating symlink: ${binary_name} -> ${binary}"
     ln -sf "$binary" "$binary_name"
 done
+
+# Also create symlinks to libexec binaries (where the actual executables are)
+if [[ -d "$LLAMA_BREW_PREFIX/libexec" ]]; then
+    find "$LLAMA_BREW_PREFIX/libexec" -name "llama*" -type f -perm +111 | while read -r binary; do
+        binary_name=$(basename "$binary")
+        log "Creating symlink: ${binary_name} -> ${binary}"
+        ln -sf "$binary" "$binary_name"
+    done
+fi
 
 # Also symlink any necessary libraries or share files if they exist
 if [[ -d "$LLAMA_BREW_PREFIX/share" ]]; then
