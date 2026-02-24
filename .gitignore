@@ -33,3 +33,6 @@ Thumbs.db
 
 # User data
 user/
+
+# Llama Binaries
+llama_binaries_*/
