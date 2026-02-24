@@ -533,10 +533,13 @@ class PromptRewriterZ:
                     "max": 0xffffffffffffffff,
                     "tooltip": "Seed for reproducible generation."
                 }),
-                "backend": (["CUDA", "Vulkan"], {
-                    "default": "CUDA",
-                    "tooltip": "Backend: CUDA (local llama_binaries) or Vulkan (system PATH llama-server)"
-                }),
+                "backend": (
+                    ["CUDA", "Vulkan", "Metal"],
+                    {
+                        "default": "CUDA",
+                        "tooltip": "Backend: CUDA (local llama_binaries), Vulkan (system PATH llama-server), or Metal (local llama_binaries_macOS)",
+                    },
+                ),
                 "options": ("OPTIONS", {
                     "tooltip": "Connect options node to control model and parameters"
                 }),
@@ -821,6 +824,8 @@ class PromptRewriterZ:
             error_msg = f"Error: llama-server command not found for backend '{backend}'.\n"
             if backend == "CUDA":
                 error_msg += "Please ensure llama_binaries_* folder exists with CUDA build of llama-server."
+            elif backend == "Metal":
+                error_msg += "Please run install_llama_macos.sh to install llama.cpp via Homebrew and create symlink structure."
             else:
                 error_msg += "Please install llama.cpp (Vulkan build) and add to PATH.\nInstallation guide: https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md"
             print(f"[Prompt Rewriter] {error_msg}")

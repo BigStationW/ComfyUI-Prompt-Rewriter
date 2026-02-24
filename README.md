@@ -32,6 +32,21 @@ To update llama.cpp, open cmd and run:
 winget upgrade llama.cpp
 ```
 
+### Backend: Metal -> macOS Apple Silicon
+
+If you have macOS, run the installation script:
+```bash
+cd /path/to/ComfyUI/custom_nodes/ComfyUI-Prompt-Rewriter
+./install_llama_macos.sh
+```
+
+This script will:
+- Install llama.cpp via Homebrew (if not already installed)
+- Create a symlink structure at `llama_binaries_macos/`
+- Verify Metal support and installation
+
+The script handles both fresh installations and existing llama.cpp installations.
+
 ### Backend: CUDA -> Specialized for Nvdia
 Double click the [Install llama.cpp (CUDA).bat](https://github.com/BigStationW/ComfyUI-Prompt-Rewriter/blob/BigStationW-patch-2/Install%20llama.cpp%20(CUDA).bat) file.
 
