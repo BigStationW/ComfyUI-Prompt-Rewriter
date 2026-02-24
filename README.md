@@ -9,34 +9,36 @@ This node can rewrite your prompts with the help of a chosen instruct (or thinki
 
 ## Installation
 
-1) Navigate to the **ComfyUI/custom_nodes** folder, [open cmd](https://www.youtube.com/watch?v=bgSSJQolR0E&t=47s) and run:
+1) Navigate to the **ComfyUI/custom_nodes** folder and run:
 
+```bash
+# Clone the repository
+git clone https://github.com/FranckyB/ComfyUI-Prompt-Manager
 ```
-git clone https://github.com/BigStationW/ComfyUI-Prompt-Rewriter
-```
-2) Navigate to the **ComfyUI\custom_nodes\ComfyUI-Prompt-Rewriter** folder, open cmd and run:
 
-```
-..\..\..\python_embeded\python.exe -s -m pip install -r "requirements.txt"
-```
-### Backend: Vulkan -> Works on all GPUs
+2) Navigate to the **ComfyUI/custom_nodes/ComfyUI-Prompt-Rewriter** folder and install dependencies:
 
-If you have Windows, open cmd and run:
-```
-winget install llama.cpp
-```
-If you have another OS, you can refer to [this](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md).
+```bash
+# On Windows (using ComfyUI's Python)
+../../../python_embeded/python.exe -s -m pip install -r "requirements.txt"
 
-To update llama.cpp, open cmd and run:
+# On macOS/Linux (using ComfyUI's Python)
+../../../python/python -s -m pip install -r "requirements.txt"
+
+# Or using system Python if ComfyUI was installed that way
+python -m pip install -r "requirements.txt"
 ```
-winget upgrade llama.cpp
-```
+
+## Backend Installation
+
+Choose **one** of the following backends based on your system:
 
 ### Backend: Metal -> macOS Apple Silicon
 
 If you have macOS, run the installation script:
 ```bash
-cd /path/to/ComfyUI/custom_nodes/ComfyUI-Prompt-Rewriter
+cd /<path-to>/ComfyUI/custom_nodes/ComfyUI-Prompt-Rewriter
+# usually it is in /Users/<username>/Documents/ComfyUI/custom_nodes/ComfyUI-Prompt-Rewriter
 ./install_llama_macos.sh
 ```
 
@@ -47,16 +49,53 @@ This script will:
 
 The script handles both fresh installations and existing llama.cpp installations.
 
-### Backend: CUDA -> Specialized for Nvdia
-Double click the [Install llama.cpp (CUDA).bat](https://github.com/BigStationW/ComfyUI-Prompt-Rewriter/blob/BigStationW-patch-2/Install%20llama.cpp%20(CUDA).bat) file.
+### Backend: Vulkan -> Works on all GPUs
 
-To update your version, you can run that file again.
+**Windows:**
+```cmd
+winget install llama.cpp
+```
+
+**Linux:**
+```bash
+# Ubuntu/Debian
+sudo apt install llama.cpp
+
+# Or compile from source
+# https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md
+```
+
+To update llama.cpp:
+```bash
+# Windows
+winget upgrade llama.cpp
+
+# macOS
+brew upgrade llama.cpp
+```
 
 ## Instruct/Thinking LLMs
 
-1) Navigate to the **ComfyUI\models** folder and create a folder named "LLM"
-2) Navigate to the **ComfyUI\models\LLM** folder and create a folder named "gguf"
-3) Navigate to the **ComfyUI\models\LLM\gguf** folder and place your chosen GGUF LLM file there.
+1) Navigate to the **ComfyUI/models** folder and create a folder named "LLM"
+
+```bash
+# On Windows
+cd ComfyUI\models
+mkdir LLM
+
+# On macOS/Linux  
+cd ComfyUI/models
+mkdir LLM
+```
+
+2) Navigate to the **ComfyUI/models/LLM** folder and create a folder named "gguf"
+
+```bash
+cd LLM
+mkdir gguf
+```
+
+3) Navigate to the **ComfyUI/models/LLM/gguf** folder and place your chosen GGUF LLM file there.
 
 For example you can go for this (Instruct model):
 - https://huggingface.co/Qwen/Qwen3-4B-GGUF
@@ -90,11 +129,11 @@ For example:
 ## Image inputs
 For Vision Language Models (VLMs), you can add up to 5 images to the Prompt Generator Options node.
 
-1. Download a VLM gguf file and put it to the **ComfyUI\models\LLM\gguf** folder, like that one for example:
+1. Download a VLM gguf file and put it to the **ComfyUI/models/LLM/gguf** folder, like that one for example:
 
 - https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF
 
-2. Download its mmproj file and put it to the **ComfyUI\models\LLM\gguf** folder.
+2. Download its mmproj file and put it to the **ComfyUI/models/LLM/gguf** folder.
 - https://huggingface.co/unsloth/Qwen3-VL-4B-Thinking-GGUF/blob/main/mmproj-BF16.gguf
 
 3. You have to rename "mmproj-BF16.gguf" to "Qwen3-VL-4B-Thinking-mmproj-BF16.gguf"
