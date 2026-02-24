@@ -48,20 +48,38 @@ def print_section(title, color='red'):
     """Print a section header with consistent formatting"""
     print(colorize(f"--- <|{title.upper()}|> ---", color))
 
-def get_local_llama_server():
+def get_local_llama_server(backend_name=None):
     """
-    Find llama-server in local llama_binaries_* folder (CUDA version).
-    Returns the full path to llama-server.exe if found, None otherwise.
+    Find llama-server in local llama_binaries_* folders.
+    
+    Args:
+        backend_name: Optional specific backend folder to look for (e.g., "macos")
+                     If None, searches all llama_binaries_* folders
+    
+    Returns:
+        Full path to llama-server executable if found, None otherwise
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Look for folders matching llama_binaries_*
+    
+    # Determine folder pattern to search
+    if backend_name:
+        folder_pattern = f"llama_binaries_{backend_name}"
+        print(f"[Prompt Rewriter] Searching for {backend_name} backend in {folder_pattern} folders")
+    else:
+        folder_pattern = "llama_binaries_"
+        print(f"[Prompt Rewriter] Searching for local backends in {folder_pattern}* folders")
+    
+    # Look for folders matching the pattern
     try:
         entries = os.listdir(script_dir)
-        llama_dirs = [e for e in entries if e.startswith('llama_binaries_') 
-                      and os.path.isdir(os.path.join(script_dir, e))]
+        llama_dirs = [
+            e for e in entries 
+            if e.startswith(folder_pattern) 
+            and os.path.isdir(os.path.join(script_dir, e))
+        ]
         
         if not llama_dirs:
+            print(f"[Prompt Rewriter] No {folder_pattern}* folders found")
             return None
         
         # Sort to get the latest version (assuming naming like llama_binaries_b7436)
@@ -75,10 +93,11 @@ def get_local_llama_server():
             server_path = os.path.join(script_dir, latest_dir, "llama-server")
         
         if os.path.exists(server_path):
-            print(f"[Prompt Rewriter] Found local CUDA llama-server: {server_path}")
+            backend_display = backend_name or "local"
+            print(f"[Prompt Rewriter] Found {backend_display} llama-server: {server_path}")
             return server_path
         else:
-            print(f"[Prompt Rewriter] llama_binaries folder found but no llama-server inside: {latest_dir}")
+            print(f"[Prompt Rewriter] {latest_dir} folder found but no llama-server inside")
             return None
             
     except Exception as e:
@@ -90,7 +109,7 @@ def get_backend_server_path(backend):
     Get the llama-server path based on backend selection.
     
     Args:
-        backend: "CUDA" or "Vulkan"
+        backend: "CUDA", "Vulkan", or "Metal"
     
     Returns:
         Path to the appropriate llama-server executable, or None if not found
@@ -104,17 +123,27 @@ def get_backend_server_path(backend):
         print(f"[Prompt Rewriter] Using Vulkan backend (system PATH)")
         return server_cmd
     elif backend == "CUDA":
-        # Local llama_binaries folder version
-        local_server = get_local_llama_server()
-        if local_server:
+        # Local llama_binaries folder version (search all, prioritize version-based naming)
+        # First try to find any existing llama_binaries_* folders (version-based like b7436)
+        fallback_server = get_local_llama_server()
+        if fallback_server:
             print(f"[Prompt Rewriter] Using CUDA backend (local binaries)")
-            return local_server
+            return fallback_server
         else:
             print(f"[Prompt Rewriter] Warning: CUDA backend requested but no local llama_binaries found")
             return None
+    elif backend == "Metal":
+        # Local llama_binaries_macos folder version
+        metal_server = get_local_llama_server("macos")
+        if metal_server:
+            print(f"[Prompt Rewriter] Using Metal backend (local binaries)")
+            return metal_server
+        else:
+            print(f"[Prompt Rewriter] Warning: Metal backend requested but no local llama_binaries_macos found")
+            return None
     else:
-        # Fallback (shouldn't happen with only CUDA/Vulkan options)
-        print(f"[Prompt Rewriter] Unknown backend '{backend}', defaulting to CUDA")
+        # Fallback (shouldn't happen with current options)
+        print(f"[Prompt Rewriter] Unknown backend '{backend}', defaulting to local search")
         return get_local_llama_server()
 
 def get_comfyui_root():
