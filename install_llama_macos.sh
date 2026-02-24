@@ -127,6 +127,19 @@ if [[ -d "$LLAMA_BREW_PREFIX/libexec" ]]; then
     done
 fi
 
+# Create lib directory and symlink required libraries (CRITICAL for macOS)
+if [[ -d "$LLAMA_BREW_PREFIX/lib" ]]; then
+    mkdir -p lib
+    log "Creating symlinks for required libraries..."
+    
+    # Find all dylib files that llama binaries depend on
+    find "$LLAMA_BREW_PREFIX/lib" -name "*.dylib" -type f | while read -r library; do
+        lib_name=$(basename "$library")
+        log "Creating library symlink: lib/${lib_name} -> ${library}"
+        ln -sf "$library" "lib/${lib_name}"
+    done
+fi
+
 # Also symlink any necessary libraries or share files if they exist
 if [[ -d "$LLAMA_BREW_PREFIX/share" ]]; then
     mkdir -p share
