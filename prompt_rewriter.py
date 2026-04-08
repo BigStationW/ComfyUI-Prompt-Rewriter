@@ -368,7 +368,13 @@ def build_gpu_args(gpu_specs):
 
     ts_str = ",".join(fmt(v) for v in split_values)
 
-    return ["-ngl", "999", "--tensor-split", ts_str]
+    # --override-tensor pins the embedding to CUDA0 so it doesn't
+    # land on the tail GPU (CUDA1) due to sequential layer splitting
+    return [
+        "-ngl", "999",
+        "--tensor-split", ts_str,
+        "--override-tensor", "per_layer_token_embd.weight=CUDA0"
+    ]
 
 def tensor_to_base64(image_tensor):
     """
