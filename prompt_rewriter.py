@@ -138,7 +138,6 @@ _current_mmproj = None  # Track mmproj file
 _current_backend = None  # Track which backend is being used
 _current_flash_attention = None  # Track flash attention setting
 _model_default_params = None  # Cache for model default parameters
-_model_layer_cache = {}  # Cache for model layer counts
 
 # Windows Job Object for guaranteed child process cleanup
 _job_handle = None
@@ -315,169 +314,61 @@ except Exception as e:
 
 atexit.register(cleanup_server)
 
-def get_model_layer_count(model_path, backend="CUDA"):
-    """Get the number of layers in a GGUF model by running llama-server briefly"""
-    global _model_layer_cache
-
-    # Check cache first
-    if model_path in _model_layer_cache:
-        return _model_layer_cache[model_path]
-
-    try:
-        # Get server path based on backend
-        server_cmd = get_backend_server_path(backend)
-        if server_cmd is None:
-            print(f"[Prompt Rewriter] Warning: Could not find llama-server for layer detection")
-            return None
-        
-        # Run with minimal settings just to get model info
-        cmd = [server_cmd, "-m", model_path, "-ngl", "0", "-c", "512"]
-        
-        print(f"[Prompt Rewriter] Detecting layer count for model...")
-        
-        if os.name == 'nt':
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-        else:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-        
-        layer_count = None
-        start_time = time.time()
-        
-        # Read output line by line looking for layer info
-        while time.time() - start_time < 30:  # 30 second timeout
-            line = process.stdout.readline()
-            if not line:
-                if process.poll() is not None:
-                    break
-                continue
-            
-            decoded = line.decode('utf-8', errors='ignore')
-            
-            # Look for "n_layer = XX" pattern
-            match = re.search(r'n_layer\s*=\s*(\d+)', decoded)
-            if match:
-                layer_count = int(match.group(1))
-                print(f"[Prompt Rewriter] Detected {layer_count} layers")
-                break
-        
-        # Kill the process
-        try:
-            process.terminate()
-            process.wait(timeout=3)
-        except:
-            try:
-                process.kill()
-            except:
-                pass
-        
-        if layer_count:
-            _model_layer_cache[model_path] = layer_count
-            return layer_count
-        else:
-            print("[Prompt Rewriter] Warning: Could not detect layer count, using default 999")
-            return None
-            
-    except Exception as e:
-        print(f"[Prompt Rewriter] Error detecting layers: {e}")
+def parse_gpu_config(gpu_config_str):
+    """
+    Parse GPU configuration string and return list of (device_index, fraction_or_layers) tuples.
+    
+    Args:
+        gpu_config_str: String like "gpu0:0.7,gpu1:0.3" or "auto"
+    
+    Returns:
+        List of (device_index, value) tuples, or None for auto
+    """
+    if not gpu_config_str or gpu_config_str.lower().strip() in ('auto', 'all', ''):
         return None
 
-def parse_gpu_config(gpu_config_str, total_layers):
-    """
-    Parse GPU configuration string and return layer distribution.
-
-    Args:
-        gpu_config_str: String like "gpu0:0.7" or "gpu0:0.5,gpu1:0.4" or "auto"
-        total_layers: Total number of layers in the model
-
-    Returns:
-        List of tuples: [(device_index, layer_count), ...] or None for auto
-    """
-    if not gpu_config_str or gpu_config_str.lower() in ('auto', 'all', ''):
-        return None  # Use default -ngl 999
-
-    gpu_config_str = gpu_config_str.lower().strip()
-
-    # Parse each GPU specification
     gpu_specs = []
-    total_fraction = 0.0
 
-    for part in gpu_config_str.split(','):
+    for part in gpu_config_str.lower().strip().split(','):
         part = part.strip()
         if not part:
             continue
-        
-        # Match patterns like "gpu0:0.7" or "vulkan0:0.5"
+
         match = re.match(r'(?:gpu|vulkan)?(\d+)\s*:\s*([\d.]+)', part)
         if match:
             device_idx = int(match.group(1))
-            fraction = float(match.group(2))
-            
-            if fraction > 1.0:
-                # Assume it's a layer count, not a fraction
-                layer_count = round(fraction)
-            else:
-                layer_count = round(total_layers * fraction)
-            
-            gpu_specs.append((device_idx, layer_count))
-            total_fraction += fraction if fraction <= 1.0 else (fraction / total_layers)
+            value = float(match.group(2))
+            gpu_specs.append((device_idx, value))
         else:
             print(f"[Prompt Rewriter] Warning: Could not parse GPU spec '{part}'")
 
-    if not gpu_specs:
-        return None
+    return gpu_specs if gpu_specs else None
 
-    # Calculate remaining layers for CPU
-    assigned_layers = sum(layers for _, layers in gpu_specs)
-    cpu_layers = max(0, total_layers - assigned_layers)
-
-    print(f"[Prompt Rewriter] Layer distribution for {total_layers} layers:")
-    for device_idx, layers in gpu_specs:
-        print(f"  GPU{device_idx}: {layers} layers ({layers/total_layers*100:.1f}%)")
-    print(f"  CPU: {cpu_layers} layers ({cpu_layers/total_layers*100:.1f}%)")
-
-    return gpu_specs
-
-def build_gpu_args(gpu_specs, total_layers):
+def build_gpu_args(gpu_specs):
     """
     Build command line arguments for GPU layer distribution.
     """
     if gpu_specs is None:
-        # Auto mode: offload all to GPU 0
         return ["-ngl", "999", "--split-mode", "none", "--main-gpu", "0"]
 
     if len(gpu_specs) == 1:
-        device_idx, layer_count = gpu_specs[0]
-        
-        # If user wants ALL layers on GPU, use 999 for better optimization
-        if layer_count >= total_layers:
-            return ["-ngl", "999", "--split-mode", "none", "--main-gpu", str(device_idx)]
-        
-        # Partial offload - use exact count
-        return ["-ngl", str(layer_count), "--split-mode", "none", "--main-gpu", str(device_idx)]
+        device_idx, value = gpu_specs[0]
+        return ["-ngl", "999", "--split-mode", "none", "--main-gpu", str(device_idx)]
 
-    else:
-        # Multi-GPU case stays the same
-        max_device = max(device_idx for device_idx, _ in gpu_specs)
-        split_values = [0] * (max_device + 1)
-        
-        for device_idx, layer_count in gpu_specs:
-            split_values[device_idx] = layer_count
-        
-        total_gpu_layers = sum(layers for _, layers in gpu_specs)
-        ngl_value = "999" if total_gpu_layers >= total_layers else str(total_gpu_layers)
-        
-        ts_str = ",".join(str(v) for v in split_values)
-        
-        return ["-ngl", ngl_value, "--tensor-split", ts_str]
+    # Multi-GPU: build --tensor-split from the values directly
+    max_device = max(device_idx for device_idx, _ in gpu_specs)
+    split_values = [0.0] * (max_device + 1)
+
+    for device_idx, value in gpu_specs:
+        split_values[device_idx] = value
+
+    # Format: drop trailing zeros after decimal only if it's a whole number
+    def fmt(v):
+        return str(int(v)) if v == int(v) else str(v)
+
+    ts_str = ",".join(fmt(v) for v in split_values)
+
+    return ["-ngl", "999", "--tensor-split", ts_str]
 
 def tensor_to_base64(image_tensor):
     """
@@ -731,20 +622,12 @@ class PromptRewriterZ:
                 cmd.extend(["--mmproj", mmproj_path])
             
             # Handle GPU configuration
-            if gpu_config and gpu_config.lower() not in ('auto', 'all', ''):
-                # Get layer count for this model
-                total_layers = get_model_layer_count(model_path, backend)
-                
-                if total_layers:
-                    gpu_specs = parse_gpu_config(gpu_config, total_layers)
-                    gpu_args = build_gpu_args(gpu_specs, total_layers)
-                else:
-                    # Fallback to auto if we couldn't detect layers
-                    gpu_args = ["-ngl", "999", "--split-mode", "none", "--main-gpu", "0"]
+            if gpu_config and gpu_config.lower().strip() not in ('auto', 'all', ''):
+                gpu_specs = parse_gpu_config(gpu_config)
+                gpu_args = build_gpu_args(gpu_specs)
             else:
-                # Auto mode - use only GPU 0
                 gpu_args = ["-ngl", "999", "--split-mode", "none", "--main-gpu", "0"]
-            
+
             cmd.extend(gpu_args)
             
             # Add Flash Attention flag
